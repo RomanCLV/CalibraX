@@ -48,13 +48,13 @@ BACK_DOWN_CONFIG_KEYS = [MgiConfigKey.BDN, MgiConfigKey.BDF]
 
 
 class RobotTool():
-    def __init__(self):
-        self.x = 0.0
-        self.y = 0.0
-        self.z = 0.0
-        self.a = 0.0
-        self.b = 0.0
-        self.c = 0.0
+    def __init__(self, x = 0., y = 0., z = 0., a = 0., b = 0., c = 0.):
+        self.x = x
+        self.y = y
+        self.z = z
+        self.a = a
+        self.b = b
+        self.c = c
     
     def is_identity(self) -> bool:
         return (abs(self.x) < EPSILON and abs(self.y) < EPSILON and abs(self.z) < EPSILON and
@@ -84,7 +84,7 @@ class KukaConfigurationIdentifier(ConfigurationIdentifier):
         return abs(j4) > pi/2
 
 class MgiGeometricParams():
-    def __init__(self, r1=400, r6=80, d2=25, d3=560, d4=35, r4=515):
+    def __init__(self, r1=400, d2=25, d3=560, d4=35, r4=515, r6=80):
         #Constantes du robot
         self.R1 = r1 # offset de la base
         self.R6 = r6 # offset du flange
@@ -382,8 +382,8 @@ class MgiResult():
         Trouve la meilleure solution en fonction de la position courante.
         
         Args:
-            current_joints: Position articulaire courante [q1, q2, q3, q4, q5, q6]
-            current_config: Configuration courante (si connue)
+            current_joints_rad: Position articulaire courante [q1, q2, q3, q4, q5, q6]
+            configuration_identifier: L'identifieur de config
             prioritize_same_config: Si True, priorise fortement la même configuration
             joint_weights: Poids pour chaque joint dans le calcul de distance (par défaut tous égaux)
                           Utile pour pénaliser plus les mouvements des gros axes
@@ -520,6 +520,9 @@ class MGI():
 
     def set_axis_limits(self, axis_limits: MgiAxisLimits):
         self.params.axis_limits = axis_limits
+
+    def set_geometric_params(self, geometric_params: MgiGeometricParams):
+        self.params.geometric_params = geometric_params
 
     def set_tool(self, tool: RobotTool):
         self.tool = tool

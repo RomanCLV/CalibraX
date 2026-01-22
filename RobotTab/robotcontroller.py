@@ -1,3 +1,4 @@
+import os
 from typing import List
 from PyQt5.QtCore import QObject, pyqtSignal
 from PyQt5.QtWidgets import QDialog, QMessageBox
@@ -9,9 +10,14 @@ from RobotTab.robotmodel import RobotModel
 from RobotTab.widgets.dh_table_widget import DHTableWidget
 from RobotTab.widgets.correction_table_widget import CorrectionTableWidget
 from RobotTab.widgets.joint_control_widget import JointControlWidget
-from RobotTab.widgets.result_table_widget import ResultTableWidget
+from RobotTab.widgets.cartesian_control_widget import CartesianControlWidget
+from RobotTab.widgets.joints_result_table_widget import JointsResultTableWidget
+from RobotTab.widgets.mgi_solutions_widget import MgiSolutionsWidget
+
 from RobotTab.widgets.measurement_widget import MeasurementWidget
 from RobotTab.widgets.viewer_3d_widget import Viewer3DWidget
+
+from mgi import MgiResult, MgiResultItem
 
 class RobotController(QObject):
     """Contrôleur centralisé pour la gestion du robot et synchronisation des widgets"""
@@ -24,9 +30,17 @@ class RobotController(QObject):
     configuration_loaded = pyqtSignal(dict)  # Émis quand une config est chargée
     tcp_pose_updated = pyqtSignal(list, list, list)  # tcp, corrected_tcp, deviation
     
-    def __init__(self, robot_model: RobotModel, dh_widget: DHTableWidget, correction_widget: CorrectionTableWidget, 
-                 joint_widget: JointControlWidget, result_widget: ResultTableWidget, 
-                 measurement_widget: MeasurementWidget, visualization_widget: Viewer3DWidget, parent: QObject = None):
+    def __init__(self, 
+                 robot_model: RobotModel,
+                 dh_widget: DHTableWidget,
+                 correction_widget: CorrectionTableWidget, 
+                 joint_widget: JointControlWidget,
+                 joints_result_widget: JointsResultTableWidget, 
+                 cartesian_widget: CartesianControlWidget,
+                 mgi_solutions_widget: MgiSolutionsWidget,
+                 measurement_widget: MeasurementWidget,
+                 visualization_widget: Viewer3DWidget, 
+                 parent: QObject = None):
         super().__init__(parent)
         
         # ====================================================================
@@ -36,7 +50,9 @@ class RobotController(QObject):
         self.dh_widget = dh_widget
         self.correction_widget = correction_widget
         self.joint_widget = joint_widget
-        self.result_widget = result_widget
+        self.joints_result_widget = joints_result_widget
+        self.cartesian_widget = cartesian_widget
+        self.mgi_solutions_widget = mgi_solutions_widget
         self.measurement_widget = measurement_widget
         self.visualization_widget = visualization_widget
         self.file_io = FileIOHandler()
@@ -73,6 +89,11 @@ class RobotController(QObject):
         self.joint_widget.home_position_requested.connect(self.on_home_position_requested)
         self.joint_widget.axis_limits_config_requested.connect(self.on_axis_limits_config_requested)
         
+        # ====================================================================
+        # RÉGION: Connexions Cartesian Widget -> Contrôleur
+        # ====================================================================
+        self.cartesian_widget.cartesian_value_changed.connect(self.on_cartesian_value_changed)
+
         # ====================================================================
         # RÉGION: Connexions Measurement Widget -> Contrôleur
         # ====================================================================
@@ -114,9 +135,13 @@ class RobotController(QObject):
     
     def on_load_configuration(self):
         """Callback: charger une configuration depuis un fichier json"""
+        currentDir = os.getcwd()
+        configurationDir = os.path.join(currentDir, 'configurations') 
+
         file_path, data = self.file_io.load_json(
             self.dh_widget,
-            "Charger une configuration robot"
+            "Charger une configuration robot",
+            configurationDir if os.path.exists(configurationDir) else currentDir
         )
         if data:
             if not isinstance(data, dict):
@@ -175,10 +200,9 @@ class RobotController(QObject):
     # RÉGION: Callbacks Joint Widget
     # ============================================================================
     
-    def on_joint_value_changed(self, index, value):
+    def on_joint_value_changed(self, index: int, value: float):
         """Callback: la valeur d'un joint a changé"""
         self.robot_model.set_joint_value(index, value)
-        self._update_kinematics()
     
     def on_home_position_requested(self):
         """Callback: retourner à la position home"""
@@ -208,6 +232,24 @@ class RobotController(QObject):
             # Appliquer l'inversion des valeurs des spinboxes si l'état d'inversion a changé
             self._update_kinematics()
     
+    # ============================================================================
+    # RÉGION: Callbacks Cartesian Widget
+    # ============================================================================
+    
+    def on_cartesian_value_changed(self, index: int, value: float):
+        if 0 <= index < 6:
+            target = self.robot_model.get_tcp_pose()
+            target[index] = value
+            joints = self._compute_mgi(target)
+            if joints:
+                self.robot_model.set_all_joint_values(joints)
+            
+    def _compute_mgi(self, target: list[float]) -> list[float] | None:
+        mgi_result: MgiResult = self.robot_model.compute_mgi_target(target)
+        best_solution = self.robot_model.get_best_mgi_solution(mgi_result)
+        self.mgi_solutions_widget.set_mgi_result(mgi_result, best_solution[0] if best_solution else None)
+        return best_solution[1].joints if best_solution else None
+
     # ============================================================================
     # RÉGION: Callbacks Result Widget
     # ============================================================================
@@ -275,7 +317,7 @@ class RobotController(QObject):
                     self._display_measurement_deviations(i, measurement)
                 break
     
-    def _display_measurement_deviations(self, measurement_index, measurement):
+    def _display_measurement_deviations(self, measurement_index: int, measurement):
         """Affiche les écarts entre un repère mesuré et le repère DH théorique correspondant"""
         try:
             # Extraire les coordonnées et angles du repère mesuré
@@ -368,7 +410,7 @@ class RobotController(QObject):
     def on_robot_name_changed(self, name):
         """Callback: le nom du robot a changé"""
         self.dh_widget.set_robot_name(name)
-        self.measurement_widget.set_measure_filename(name)
+        self.measurement_widget.clear_measurements()
     
     def on_dh_params_changed(self):
         """Callback: les paramètres DH ont changé"""
@@ -383,6 +425,7 @@ class RobotController(QObject):
         joint_values = self.robot_model.get_all_joint_values()
         self.joint_widget.set_all_joints(joint_values)
         self._update_kinematics()
+        self.cartesian_widget.set_all_cartesian(self.robot_model.tcp_pose)
     
     def on_corrections_changed(self):
         """Callback: les corrections ont changé"""
@@ -399,7 +442,6 @@ class RobotController(QObject):
     
     def on_axis_reversed_changed(self):
         """Callback: l'inversion d'axes a changé"""
-        
         # Recalculer la cinématique
         self._update_kinematics()
         
@@ -461,7 +503,7 @@ class RobotController(QObject):
     
     def _update_kinematics(self):
         """Recalcule la cinématique directe et met à jour les poses TCP"""
-        dh_matrices, corrected_matrices, dh_pose, corrected_pose, deviation = compute_forward_kinematics(self.robot_model)
+        _, _, dh_pose, corrected_pose, _ = compute_forward_kinematics(self.robot_model)
         # Mettre à jour le modèle
         self.robot_model.set_tcp_pose(dh_pose)
         self.robot_model.set_corrected_tcp_pose(corrected_pose)
@@ -475,7 +517,7 @@ class RobotController(QObject):
         corrected_tcp_pose = self.robot_model.get_corrected_tcp_pose()
         deviation = self.robot_model.get_pose_deviation()
         
-        self.result_widget.update_results(tcp_pose, corrected_tcp_pose, deviation)
+        self.joints_result_widget.update_results(tcp_pose, corrected_tcp_pose, deviation)
     
     def _update_all_widgets_from_model(self):
         """Met à jour tous les widgets depuis le modèle (après chargement config)"""
@@ -495,13 +537,19 @@ class RobotController(QObject):
         # Joints
         joint_values = self.robot_model.get_all_joint_values()
         self.joint_widget.set_all_joints(joint_values)
-        
+      
         # Limites
         limits = self.robot_model.get_axis_limits()
         self.joint_widget.update_axis_limits(limits)
         
         # Recalculer la cinématique
         self._update_kinematics()
+
+        # Cartesian
+        self.cartesian_widget.set_all_cartesian(self.robot_model.tcp_pose)
+
+        self._compute_mgi(self.robot_model.tcp_pose)
+
         # Mettre à jour le viewer
         self._update_visualization()
     

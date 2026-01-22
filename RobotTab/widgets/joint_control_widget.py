@@ -1,7 +1,7 @@
 from typing import List
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-    QLabel, QPushButton, QSlider, QDoubleSpinBox
+    QLabel, QPushButton, QSlider, QDoubleSpinBox, QSizePolicy
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 from RobotTab.robotmodel import RobotModel
@@ -19,6 +19,7 @@ class JointControlWidget(QWidget):
         self.sliders_q: List[QSlider] = []
         self.spinboxes_q: List[QDoubleSpinBox] = []
         self.scale: int = 100  # Facteur d'échelle pour les sliders (2 décimales)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         self.setup_ui()
         
     def setup_ui(self) -> None:

@@ -16,9 +16,9 @@ class FileIOHandler:
         return None
     
     @staticmethod
-    def load_json(parent: QWidget, title: str):
+    def load_json(parent: QWidget, title: str=None, directory: str=None):
         """Charge des données depuis un JSON"""
-        file_name, _ = QFileDialog.getOpenFileName(parent, title, "", "JSON Files (*.json)")
+        file_name, _ = QFileDialog.getOpenFileName(parent, title, directory, "JSON Files (*.json)")
         if file_name:
             try:
                 with open(file_name, "r") as f:

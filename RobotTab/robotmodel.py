@@ -1,5 +1,7 @@
 from PyQt5.QtCore import QObject, pyqtSignal
 from typing import List, Tuple
+import math
+from mgi import *
 
 class RobotModel(QObject):
     """Modèle centralisé contenant tous les paramètres et l'état du robot"""
@@ -68,6 +70,26 @@ class RobotModel(QObject):
         self.dh_params: List[List[float]] = [[0, 0, 0, 0] for _ in range(7)]
         
         # ====================================================================
+        # REGION: MGI
+        # ====================================================================
+
+        self.mgi_kuka_config_identifier = KukaConfigurationIdentifier()
+
+        self.mgi_params = MgiParams(
+            self.mgi_kuka_config_identifier, 
+            RobotModel._mgi_build_geometric_params(self.dh_params), 
+            RobotModel._mgi_build_invert_table(self.axis_reversed), 
+            RobotModel._mgi_build_axis_limits(self.axis_limits), 
+            MgiSingularitiesBehavior(MgiSingularityBehavior.CONTINUE),
+            MgiConfigurationFilter.allow_all())
+        
+        self.last_mgi_result: MgiResult | None = None
+
+        self.MGI_solver = MGI(self.mgi_params, None)
+        self.MGI_solver.set_q1ValueIfSingularityQ1(0.0)
+        self.MGI_solver.set_q4ValueIfSingularityQ5(0.0)
+
+        # ====================================================================
         # RÉGION: Corrections 6D
         # ====================================================================
         # 6 lignes pour 6 joints, 6 colonnes pour 6 DDL (X, Y, Z, Rx, Ry, Rz)
@@ -93,7 +115,69 @@ class RobotModel(QObject):
         
         # Points de mesure (positions de référence)
         self.measurement_points: List[List[float]] = []
+
+    @staticmethod
+    def _mgi_build_axis_limits(axis_limits: list[tuple[float, float]]):
+        return MgiAxisLimits(False, axis_limits)
+
+    @staticmethod
+    def _mgi_build_invert_table(axis_reversed: list[int]):
+        return [b == -1 for b in axis_reversed]
+
+    @staticmethod
+    def _mgi_build_geometric_params(dh_table: List[List[float]]) -> MgiGeometricParams:
+        """
+        Construit les paramètres géométriques du MGI à partir
+        d'une table DH standard [a, alpha, d, theta].
+
+        Hypothèse :
+        - Robot 6 axes anthropomorphique
+        - dh_table contient au moins 6 lignes - 7e ligne : pour le Tool
+        """
+
+        if len(dh_table) < 6:
+            raise ValueError("La table DH doit contenir au moins 6 lignes")
+
+        # Raccourcis de lecture
+        # dh_table[i] = [a_i, alpha_i, d_i, theta_i]
+
+        # Base  Axe 1
+        r1 = dh_table[0][3]   # d1
+
+        # Axe 2
+        d2 = dh_table[1][1]   # d2
+
+        # Axe 3
+        d3 = dh_table[2][1]   # d3
+
+        # Axe 4
+        d4 = dh_table[3][1]   # d4
+        r4 = dh_table[3][3]   # a4
+
+        # Axe 6 / flange
+        r6 = dh_table[5][3]   # d6
+
+        return MgiGeometricParams(r1, d2, d3, d4, r4, r6)
     
+    @staticmethod
+    def _mgi_build_tool(dh_table: List[List[float]]) -> RobotTool:
+        # TODO : Tool from dh_table
+        return RobotTool()
+
+    def compute_mgi(self, x: float, y: float, z: float, a: float, b: float, c: float):
+        return self.MGI_solver.compute_mgi(x, y, z, a, b, c)
+
+    def compute_mgi_target(self, target: list[float]):
+        self.last_mgi_result = self.compute_mgi(target[0], target[1], target[2], target[3], target[4], target[5])
+        return self.last_mgi_result
+    
+    def get_last_mgi_result(self):
+        return self.last_mgi_result
+
+    def get_best_mgi_solution(self, mgi_result: MgiResult):
+        joints_rad = [math.radians(q) for q in self.joint_values]
+        return mgi_result.get_best_solution_from_current(joints_rad, self.mgi_kuka_config_identifier, True)
+
     # ============================================================================
     # RÉGION: Getters - Configuration générale
     # ============================================================================
@@ -182,12 +266,14 @@ class RobotModel(QObject):
     def set_axis_limits(self, limits: List[Tuple[float, float]]):
         """Définit les limites de tous les axes"""
         self.axis_limits = limits
+        self.MGI_solver.set_axis_limits(RobotModel._mgi_build_axis_limits(self.axis_limits))
         self.limits_changed.emit()
     
     def set_axis_limit(self, index: int, min_val: float, max_val: float):
         """Définit les limites d'un axe spécifique"""
         if 0 <= index < 6:
             self.axis_limits[index] = (min_val, max_val)
+            self.MGI_solver.set_axis_limits(RobotModel._mgi_build_axis_limits(self.axis_limits))
             self.limits_changed.emit()
     
     def set_home_position(self, home_pos: list[float]):
@@ -204,6 +290,7 @@ class RobotModel(QObject):
             self.reel_joint_values = [
                 self.joint_values[i] * self.axis_reversed[i] for i in range(6)
             ]
+            self.MGI_solver.set_invert_table(RobotModel._mgi_build_invert_table(self.axis_reversed))
             self.axis_reversed_changed.emit()
     
     def set_axis_reversed_single(self, index: int, reversed_value: bool):
@@ -211,6 +298,7 @@ class RobotModel(QObject):
         if 0 <= index < 6:
             self.axis_reversed[index] = -1 if reversed_value else 1
             self.reel_joint_values[index] = self.joint_values[index] * self.axis_reversed[index]
+            self.MGI_solver.set_invert_table(RobotModel._mgi_build_invert_table(self.axis_reversed))
             self.axis_reversed_changed.emit()
     
     # ============================================================================
@@ -223,15 +311,11 @@ class RobotModel(QObject):
     
     def get_dh_param(self, row: int, col: int):
         """Retourne un paramètre DH spécifique"""
-        if 0 <= row < 7 and 0 <= col < 4:
-            return self.dh_params[row][col]
-        return 0
+        return self.dh_params[row][col] if 0 <= row < 7 and 0 <= col < 4 else 0
     
     def get_dh_row(self, row: int):
         """Retourne une ligne complète de paramètres DH"""
-        if 0 <= row < 7:
-            return self.dh_params[row].copy()
-        return [0, 0, 0, 0]
+        return self.dh_params[row].copy() if 0 <= row < 7 else [0, 0, 0, 0]
     
     # ============================================================================
     # RÉGION: Setters - Paramètres DH
@@ -244,6 +328,7 @@ class RobotModel(QObject):
         while len(self.dh_params) < 7:
             self.dh_params.append([0, 0, 0, 0])
         self.dh_params = self.dh_params[:7]
+        self.MGI_solver.set_geometric_params(RobotModel._mgi_build_geometric_params(self.dh_params))
         self.dh_params_changed.emit()
     
     def set_dh_param(self, row: int, col: int, value: float):
@@ -453,7 +538,7 @@ class RobotModel(QObject):
             dh_list = [[float(val) if val else 0 for val in row] for row in data["dh"]]
             while len(dh_list) < 7:
                 dh_list.append([0, 0, 0, 0])
-            self.dh_params = dh_list[:7]
+            self.set_dh_params(dh_list[:7])
         
         # Corrections
         if "corr" in data:
@@ -468,11 +553,11 @@ class RobotModel(QObject):
         
         # Multiplicateurs d'axes
         if "axis_reversed" in data:
-            self.axis_reversed = list(data["axis_reversed"][:6])
+            self.set_axis_reversed(list(data["axis_reversed"][:6]))
         
         # Limites des axes
         if "axis_limits" in data:
-            self.axis_limits = list(data["axis_limits"][:6])
+            self.set_axis_limits(list(data["axis_limits"][:6]))
         
         # Position home
         if "home_position" in data:

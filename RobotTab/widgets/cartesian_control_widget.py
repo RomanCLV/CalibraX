@@ -1,7 +1,7 @@
 from typing import List, Tuple
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QSlider, QDoubleSpinBox, QComboBox
+    QLabel, QSlider, QDoubleSpinBox, QComboBox, QSizePolicy
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 
@@ -13,8 +13,6 @@ class CartesianControlWidget(QWidget):
     # ============================================================================
     cartesian_value_changed = pyqtSignal(int, float)  # index (0-5), value
     convention_changed = pyqtSignal(str)  # convention name
-    home_position_requested = pyqtSignal()
-    axis_limits_config_requested = pyqtSignal()
     
     # ============================================================================
     # RÉGION: Conventions constructeurs
@@ -64,6 +62,7 @@ class CartesianControlWidget(QWidget):
         # RÉGION: Initialisation UI
         # ========================================================================
         self.setup_ui()
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         
     def setup_ui(self) -> None:
         """Initialise l'interface du widget"""

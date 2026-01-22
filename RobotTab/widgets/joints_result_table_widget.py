@@ -3,12 +3,12 @@ from PyQt5.QtWidgets import (
     QTableWidget, QTableWidgetItem, QAbstractItemView
 )
 
-class ResultTableWidget(QWidget):
+class JointsResultTableWidget(QWidget):
     """Widget pour afficher les positions cartésiennes (TCP)"""
-    
     
     def __init__(self, parent: QWidget = None):
         super().__init__(parent)
+        self.setMinimumHeight(280)
         self.setup_ui()
     
     def setup_ui(self):
@@ -31,7 +31,7 @@ class ResultTableWidget(QWidget):
         layout.addWidget(self.result_table)
         self.setLayout(layout)
     
-    def update_results(self, tcp_pose, corrected_tcp_pose, deviations):
+    def update_results(self, tcp_pose: list[float], corrected_tcp_pose: list[float], deviations: list[float]):
         """
         Met à jour les résultats affichés
         
