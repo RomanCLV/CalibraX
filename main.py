@@ -1,6 +1,7 @@
 import sys
 from PyQt5.QtWidgets import QApplication
-from main_window import MainWindow
+from RobotTab.robotmodel import RobotModel
+from views.main_window import MainWindow
 
 class MGDApplication:
     def __init__(self):
@@ -8,9 +9,14 @@ class MGDApplication:
         self.load_theme()
 
         # ====================================================================
+        # RÉGION: Création du modèle
+        # ====================================================================
+        self.robot_model = RobotModel()
+
+        # ====================================================================
         # RÉGION: Création de la fenêtre principale
         # ====================================================================
-        self.main_window = MainWindow()
+        self.main_window = MainWindow(self.robot_model)
 
     def load_theme(self):
         try:

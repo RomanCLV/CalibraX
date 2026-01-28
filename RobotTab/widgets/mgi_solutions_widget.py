@@ -95,7 +95,6 @@ class MgiSolutionsWidget(QWidget):
 
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._table.setSelectionMode(QAbstractItemView.NoSelection)
-        self._table.horizontalHeader().setStretchLastSection(True)
 
         layout.addWidget(self._table)
 

@@ -2,6 +2,8 @@ import os
 from typing import List
 from PyQt5.QtCore import QObject, pyqtSignal
 from PyQt5.QtWidgets import QDialog, QMessageBox
+from RobotTab.cartesiancontrol import CartesianControlWindow
+from RobotTab.jointcontrol import JointControlWindow
 from utils.file_io import FileIOHandler
 from utils.math_utils import *
 import numpy as np
@@ -32,12 +34,10 @@ class RobotController(QObject):
     
     def __init__(self, 
                  robot_model: RobotModel,
+                 main_window,
                  dh_widget: DHTableWidget,
-                 correction_widget: CorrectionTableWidget, 
-                 joint_widget: JointControlWidget,
-                 joints_result_widget: JointsResultTableWidget, 
-                 cartesian_widget: CartesianControlWidget,
-                 mgi_solutions_widget: MgiSolutionsWidget,
+                 jointControlWindow: JointControlWindow,
+                 cartesianControlWindow: CartesianControlWindow,
                  measurement_widget: MeasurementWidget,
                  visualization_widget: Viewer3DWidget, 
                  parent: QObject = None):
@@ -47,12 +47,13 @@ class RobotController(QObject):
         # RÉGION: Injection de dépendances
         # ====================================================================
         self.robot_model = robot_model
+        self.main_window = main_window
+        self.active_correction_widget: CorrectionTableWidget|None = None
+        self.correction_to_apply: list[list[float]] = []
+        self.has_corrections_to_apply = False
         self.dh_widget = dh_widget
-        self.correction_widget = correction_widget
-        self.joint_widget = joint_widget
-        self.joints_result_widget = joints_result_widget
-        self.cartesian_widget = cartesian_widget
-        self.mgi_solutions_widget = mgi_solutions_widget
+        self.jointControlWindow = jointControlWindow
+        self.cartesianControlWindow = cartesianControlWindow
         self.measurement_widget = measurement_widget
         self.visualization_widget = visualization_widget
         self.file_io = FileIOHandler()
@@ -78,23 +79,23 @@ class RobotController(QObject):
         self.dh_widget.cad_toggled.connect(self.on_cad_toggled)
         
         # ====================================================================
-        # RÉGION: Connexions Correction Widget -> Contrôleur
+        # RÉGION: Connexions Main Window -> Contrôleur
         # ====================================================================
-        self.correction_widget.correction_value_changed.connect(self.on_correction_value_changed)
-        
+        self.main_window.on_tab_changed.connect(self.on_mainwindow_tab_changed)
+        # Connexions Correction Widget -> Contrôleur : Géré dans on_mainwindow_tab_changed
+
         # ====================================================================
         # RÉGION: Connexions Joint Widget -> Contrôleur
         # ====================================================================
-        self.joint_widget.joint_value_changed.connect(self.on_joint_value_changed)
-        self.joint_widget.home_position_requested.connect(self.on_home_position_requested)
-        self.joint_widget.axis_limits_config_requested.connect(self.on_axis_limits_config_requested)
+        self.jointControlWindow.joint_widget.joint_value_changed.connect(self.on_joint_value_changed)
+        self.jointControlWindow.joint_widget.home_position_requested.connect(self.on_home_position_requested)
+        self.jointControlWindow.joint_widget.axis_limits_config_requested.connect(self.on_axis_limits_config_requested)
         
         # ====================================================================
         # RÉGION: Connexions Cartesian Widget -> Contrôleur
         # ====================================================================
-        self.cartesian_widget.cartesian_value_changed.connect(self.on_cartesian_value_changed)
-
-        self.mgi_solutions_widget.solution_selected.connect(self._on_mgi_solution_selected)
+        self.cartesianControlWindow.cartesian_widget.cartesian_value_changed.connect(self.on_cartesian_value_changed)
+        self.cartesianControlWindow.mgi_solutions_widget.solution_selected.connect(self._on_mgi_solution_selected)
 
         # ====================================================================
         # RÉGION: Connexions Measurement Widget -> Contrôleur
@@ -131,6 +132,27 @@ class RobotController(QObject):
         self.robot_model.measurements_changed.connect(self.on_measurements_changed)
         self.robot_model.measurement_points_changed.connect(self.on_measurement_points_changed)
     
+    def on_mainwindow_tab_changed(self, index: int):
+        new_correction_widget: CorrectionTableWidget|None = None
+        if index == 1:
+            new_correction_widget = self.jointControlWindow.correction_widget
+        elif index == 2:
+            new_correction_widget = self.cartesianControlWindow.correction_widget
+        
+        if new_correction_widget and new_correction_widget != self.active_correction_widget:
+
+            if self.active_correction_widget:
+                self.active_correction_widget.correction_value_changed.disconnect(self.on_correction_value_changed)
+
+            self.active_correction_widget = new_correction_widget
+
+            if self.has_corrections_to_apply:
+                self.has_corrections_to_apply = False
+                corrections_str = [[str(val) for val in row] for row in self.correction_to_apply]
+                self.active_correction_widget.set_corrections(corrections_str)
+
+            self.active_correction_widget.correction_value_changed.connect(self.on_correction_value_changed)
+
     # ============================================================================
     # RÉGION: Callbacks DH Widget
     # ============================================================================
@@ -150,6 +172,8 @@ class RobotController(QObject):
                 self._show_error_popup("Erreur d'importation", "Le fichier de configuration n'est pas au format adapté. Veuillez vérifier le contenu.")
                 return
             self.robot_model.load_from_dict(data, file_path)
+            self.dh_widget.set_cad_visible(True)
+            self.visualization_widget.set_transparency(True)
         
     def on_text_changed(self):
         """Callback: le nom du robot a changé"""
@@ -214,7 +238,7 @@ class RobotController(QObject):
     def on_axis_limits_config_requested(self):
         """Callback: ouvrir la boîte de dialogue de configuration des limites"""
         dialog = AxisLimitsDialog(
-            self.joint_widget,
+            self.jointControlWindow.joint_widget,
             self.robot_model.get_axis_limits(),
             self.robot_model.get_home_position(),
             self.robot_model.get_axis_reversed()
@@ -249,12 +273,12 @@ class RobotController(QObject):
     def _compute_mgi(self, target: list[float]) -> list[float] | None:
         mgi_result: MgiResult = self.robot_model.compute_mgi_target(target)
         best_solution = self.robot_model.get_best_mgi_solution(mgi_result)
-        self.mgi_solutions_widget.set_mgi_result(mgi_result, best_solution[0] if best_solution else None)
+        self.cartesianControlWindow.mgi_solutions_widget.set_mgi_result(mgi_result, best_solution[0] if best_solution else None)
         return best_solution[1].joints if best_solution else None
 
     def _on_mgi_solution_selected(self, selectedKey: MgiConfigKey):
         last_mgi_result = self.robot_model.get_last_mgi_result()
-        self.mgi_solutions_widget.set_selected_key(selectedKey)
+        self.cartesianControlWindow.mgi_solutions_widget.set_selected_key(selectedKey)
         self.robot_model.set_all_joint_values(last_mgi_result.get_solution(selectedKey).joints)
 
     # ============================================================================
@@ -430,22 +454,22 @@ class RobotController(QObject):
     def on_joints_changed(self):
         """Callback: les joints ont changé"""
         joint_values = self.robot_model.get_all_joint_values()
-        self.joint_widget.set_all_joints(joint_values)
+        self.jointControlWindow.joint_widget.set_all_joints(joint_values)
         self._update_kinematics()
-        self.cartesian_widget.set_all_cartesian(self.robot_model.tcp_pose)
+        self.cartesianControlWindow.cartesian_widget.set_all_cartesian(self.robot_model.tcp_pose)
     
     def on_corrections_changed(self):
         """Callback: les corrections ont changé"""
         corrections = self.robot_model.get_corrections()
         # Convertir en strings pour le widget
         corrections_str = [[str(val) for val in row] for row in corrections]
-        self.correction_widget.set_corrections(corrections_str)
+        self.active_correction_widget.set_corrections(corrections_str)
         self._update_kinematics()
     
     def on_limits_changed(self):
         """Callback: les limites des axes ont changé"""
         limits = self.robot_model.get_axis_limits()
-        self.joint_widget.update_axis_limits(limits)
+        self.jointControlWindow.joint_widget.update_axis_limits(limits)
     
     def on_axis_reversed_changed(self):
         """Callback: l'inversion d'axes a changé"""
@@ -524,7 +548,7 @@ class RobotController(QObject):
         corrected_tcp_pose = self.robot_model.get_corrected_tcp_pose()
         deviation = self.robot_model.get_pose_deviation()
         
-        self.joints_result_widget.update_results(tcp_pose, corrected_tcp_pose, deviation)
+        self.jointControlWindow.joints_result_widget.update_results(tcp_pose, corrected_tcp_pose, deviation)
     
     def _update_all_widgets_from_model(self):
         """Met à jour tous les widgets depuis le modèle (après chargement config)"""
@@ -537,23 +561,27 @@ class RobotController(QObject):
         self.dh_widget.set_dh_params(dh_params_str)
         
         # Corrections
-        corrections = self.robot_model.get_corrections()
-        corrections_str = [[str(val) for val in row] for row in corrections]
-        self.correction_widget.set_corrections(corrections_str)
+        if self.active_correction_widget:
+            corrections = self.robot_model.get_corrections()
+            corrections_str = [[str(val) for val in row] for row in corrections]
+            self.active_correction_widget.set_corrections(corrections_str)
+        else:
+            self.has_corrections_to_apply = True
+            self.correction_to_apply = self.robot_model.get_corrections()
         
         # Joints
         joint_values = self.robot_model.get_all_joint_values()
-        self.joint_widget.set_all_joints(joint_values)
+        self.jointControlWindow.joint_widget.set_all_joints(joint_values)
       
         # Limites
         limits = self.robot_model.get_axis_limits()
-        self.joint_widget.update_axis_limits(limits)
+        self.jointControlWindow.joint_widget.update_axis_limits(limits)
         
         # Recalculer la cinématique
         self._update_kinematics()
 
         # Cartesian
-        self.cartesian_widget.set_all_cartesian(self.robot_model.tcp_pose)
+        self.cartesianControlWindow.cartesian_widget.set_all_cartesian(self.robot_model.tcp_pose)
 
         self._compute_mgi(self.robot_model.tcp_pose)
 

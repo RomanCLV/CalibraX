@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QListWidget, QListWidgetItem, QAbstractItemView
-from PyQt5.QtCore import pyqtSignal, Qt
+from PyQt5.QtCore import pyqtSignal, Qt, QTimer
 from PyQt5.QtGui import QFont
 import pyqtgraph.opengl as gl
 from pyqtgraph.Qt import QtGui
@@ -56,6 +56,16 @@ class Viewer3DWidget(QWidget):
         
         self.setLayout(layout)
         self.add_grid()
+
+
+    def update_viewer(self):
+        self.viewer.show()
+        QTimer.singleShot(0, self._force_gl_refresh)
+
+    def _force_gl_refresh(self):
+        size = self.viewer.size()
+        self.viewer.resize(size.width() + 1, size.height() + 1)
+        self.viewer.resize(size)
 
     def on_frame_clicked(self, item: QListWidgetItem):
         """Gère le clic sur un élément de la liste"""
