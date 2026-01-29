@@ -161,21 +161,20 @@ class RobotController(QObject):
         currentDir = os.getcwd()
         configurationDir = os.path.join(currentDir, 'configurations') 
 
-        _, data = FileIOHandler.select_and_load_json(
+        file_path, data = FileIOHandler.select_and_load_json(
             self.dh_widget,
             "Charger une configuration robot",
             configurationDir if os.path.exists(configurationDir) else currentDir
         )
-        self.load_data_configuration(data)
+        self.load_data_configuration(data, file_path)
     
-    def load_data_configuration(self, data: dict):
+    def load_data_configuration(self, data: dict, file_path: str = None):
         """Charge une configuration depuis des données dict (utilisé au démarrage)"""
         if data:
             if not isinstance(data, dict):
                 self._show_error_popup("Erreur d'importation", "Le fichier de configuration n'est pas au format adapté. Veuillez vérifier le contenu.")
                 return
-            print(data)
-            self.robot_model.load_from_dict(data)
+            self.robot_model.load_from_dict(data, file_path)
             self.dh_widget.set_cad_visible(True)
             self.visualization_widget.set_transparency(True)
     
