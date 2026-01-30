@@ -51,3 +51,13 @@ class MainWindow(QMainWindow):
     def get_cartesian_control_view(self) -> CartesianControlView:
         """Retourne la vue de contrôle cartésien"""
         return self.cartesian_control_view
+
+    #####################
+    # Functions
+    #####################
+
+    def update_enabled_tabs(self, robot_has_configuration: bool) -> None:
+        """Active ou désactive les onglets de contrôle en fonction de la configuration du robot"""
+        self.tabs.setTabEnabled(1, robot_has_configuration)
+        self.tabs.setTabEnabled(2, robot_has_configuration)
+    

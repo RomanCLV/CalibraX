@@ -16,6 +16,16 @@ DEFAULT_AXIS_LIMITS = [
 
 DEFAULT_INVERT_TABLE = [True, False, False, True, False, True]
 
+class ConfigurationIdentifier():
+    def is_front(self, j1: float):
+        return True
+    
+    def is_up(self, j3: float):
+        return True
+    
+    def is_flipped(self, j4: float):
+        return False
+
 class MgiConfigKey(Enum):
     FUN = 0 # Front, Up, No Flip
     FUF = 1 # Front, Up, Flip
@@ -27,9 +37,26 @@ class MgiConfigKey(Enum):
     BDF = 7 # Back, Down, Flip
 
     @staticmethod
-    def get_mgi_config_key_from(is_front: bool, is_up: bool, is_flipped: bool)-> MgiConfigKey:
+    def get_mgi_config_key_from(is_front: bool, is_up: bool, is_flipped: bool) -> MgiConfigKey:
         idx = (0 if is_front else 4) + (0 if is_up else 2) + (1 if is_flipped else 0)
         return MgiConfigKey(idx)
+
+    @staticmethod
+    def identify_configuration(joints: list[float],  config_identifier: ConfigurationIdentifier) -> MgiConfigKey:
+        """
+        Identifie la configuration à partir des valeurs articulaires.
+        
+        Args:
+            joints: Liste des 6 angles articulaires [q1, q2, q3, q4, q5, q6]
+            config_identifier: L'identifieur de configuration du robot
+        
+        Returns:
+            La clé de configuration correspondante
+        """
+        is_front = config_identifier.is_front(joints[0])
+        is_up = config_identifier.is_up(joints[2])
+        is_flipped = config_identifier.is_flipped(joints[3])
+        return MgiConfigKey.get_mgi_config_key_from(is_front, is_up, is_flipped)
 
 FRONT_CONFIG_KEYS = [MgiConfigKey.FUN, MgiConfigKey.FUF, MgiConfigKey.FDN, MgiConfigKey.FDF]
 BACK_CONFIG_KEYS = [MgiConfigKey.BUN, MgiConfigKey.BUF, MgiConfigKey.BDN, MgiConfigKey.BDF]
@@ -59,16 +86,6 @@ class RobotTool():
     def is_identity(self) -> bool:
         return (abs(self.x) < EPSILON and abs(self.y) < EPSILON and abs(self.z) < EPSILON and
                 abs(self.a) < EPSILON and abs(self.b) < EPSILON and abs(self.c) < EPSILON)
-
-class ConfigurationIdentifier():
-    def is_front(self, j1: float):
-        return True
-    
-    def is_up(self, j3: float):
-        return True
-    
-    def is_flipped(self, j4: float):
-        return False
 
 class KukaConfigurationIdentifier(ConfigurationIdentifier):
     @override
@@ -457,24 +474,6 @@ class MgiResult():
             total_distance += w * diff * diff  # Distance quadratique
         
         return sqrt(total_distance)
-
-    @staticmethod
-    def identify_configuration(joints: list[float],  config_identifier: ConfigurationIdentifier) -> MgiConfigKey:
-        """
-        Identifie la configuration à partir des valeurs articulaires.
-        
-        Args:
-            joints: Liste des 6 angles articulaires [q1, q2, q3, q4, q5, q6]
-            config_identifier: L'identifieur de configuration du robot
-        
-        Returns:
-            La clé de configuration correspondante
-        """
-        is_front = config_identifier.is_front(joints[0])
-        is_up = config_identifier.is_up(joints[2])
-        is_flipped = config_identifier.is_flipped(joints[3])
-        return MgiConfigKey.get_mgi_config_key_from(is_front, is_up, is_flipped)
-
 
 class MGI():
 

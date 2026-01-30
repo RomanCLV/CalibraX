@@ -15,9 +15,14 @@ class MainController:
         self.joint_control_controller = JointControlController(robot_model, main_window.get_joint_control_view())
         self.cartesian_control_controller = CartesianControlController(robot_model, main_window.get_cartesian_control_view())
 
+        self._on_robot_model_config_changed()  # initial update
+
         self._setup_connections()
 
     def _setup_connections(self) -> None:
         """Configure les connexions de signaux entre la vue et le modèle du robot"""
-        pass
+        self.robot_model.configuration_changed.connect(self._on_robot_model_config_changed)
+
+    def _on_robot_model_config_changed(self) -> None:
+        self.main_window.update_enabled_tabs(self.robot_model.get_has_confifiguration())
     

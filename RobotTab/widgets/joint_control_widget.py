@@ -7,7 +7,7 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from RobotTab.robotmodel import RobotModel
 
 import math
-from mgi import MgiResult
+from mgi import MgiConfigKey, MgiResult
 
 class JointControlWidget(QWidget):
     """Widget pour le contrôle des coordonnées articulaires"""
@@ -124,8 +124,9 @@ class JointControlWidget(QWidget):
     
     def update_config_label(self):
         config_identifier = self.robot_model.get_config_identifier()
-        current_joints_rad = [math.radians(spinboxe.value()) for spinboxe in self.spinboxes_q]
-        current_config = MgiResult.identify_configuration(current_joints_rad, config_identifier)
+        current_joints_rad = [math.radians(j) for j in self.robot_model.get_all_reel_joint_values()]
+        current_config = MgiConfigKey.identify_configuration(current_joints_rad, config_identifier)
+        # TODO : changer pour prendre current_axis_config du robot directement
         self.configuration_label.setText(f"Configuration courrante : {current_config.name}")
 
     def update_axis_limits(self, limits: list[tuple[int, int]]) -> None:
