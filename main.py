@@ -2,24 +2,21 @@ import sys
 import os
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import QTimer
-from RobotTab.robotmodel import RobotModel
+
+from models.robot_model import RobotModel
+from controllers.main_controller import MainController
+from views.main_window2 import MainWindow
+
 from utils.file_io import FileIOHandler
-from views.main_window import MainWindow
 
 class MGDApplication:
     def __init__(self):
         self.app = QApplication(sys.argv)
         self.load_theme()
 
-        # ====================================================================
-        # RÉGION: Création du modèle
-        # ====================================================================
         self.robot_model = RobotModel()
-
-        # ====================================================================
-        # RÉGION: Création de la fenêtre principale
-        # ====================================================================
-        self.main_window = MainWindow(self.robot_model)
+        self.main_window = MainWindow()
+        self.main_controller = MainController(self.robot_model, self.main_window)
 
     def load_theme(self):
         try:
@@ -30,12 +27,11 @@ class MGDApplication:
 
     def run(self):
         self.main_window.showMaximized()
-        self.main_window.show()
-        if len(sys.argv) > 1:
-            config_file = sys.argv[1]
-            if os.path.exists(config_file) and config_file.endswith(".json"):
-                config_file, data = FileIOHandler.load_json(config_file)
-                QTimer.singleShot(100, lambda: self.main_window.get_robot_window().get_robot_controller().load_data_configuration(data, config_file))
+        #if len(sys.argv) > 1:
+        #    config_file = sys.argv[1]
+        #    if os.path.exists(config_file) and config_file.endswith(".json"):
+        #        config_file, data = FileIOHandler.load_json(config_file)
+        #        QTimer.singleShot(100, lambda: self.main_window.get_robot_window().get_robot_controller().load_data_configuration(data, config_file))
 
         sys.exit(self.app.exec_())
 

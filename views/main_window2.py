@@ -1,0 +1,53 @@
+from PyQt5.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QTabWidget
+
+from RobotTab.widgets.viewer_3d_widget import Viewer3DWidget
+from views.robot_view import RobotView
+from views.joint_control_view import JointControlView
+from views.cartesian_control_view import CartesianControlView
+
+class MainWindow(QMainWindow):
+
+    def __init__(self, parent: QWidget=None):
+        super().__init__(parent)
+        self.setWindowTitle("Calibrax")
+
+        self.tabs = QTabWidget()
+
+        self.robot_view = RobotView()
+        self.joint_control_view = JointControlView()
+        self.cartesian_control_view = CartesianControlView()
+
+        self.viewer3d = Viewer3DWidget()
+
+        self._setup_ui()
+    
+    def _setup_ui(self) -> None:
+        """Configure l'interface utilisateur de la fenêtre principale"""
+
+        central_widget = QWidget()
+        
+        self.tabs.addTab(self.robot_view, "Robot")
+        self.tabs.addTab(self.joint_control_view, "Contrôle articulaire")
+        self.tabs.addTab(self.cartesian_control_view, "Contrôle cartésien")
+
+        layout = QHBoxLayout(central_widget)
+        layout.addWidget(self.tabs, 2)
+        layout.addWidget(self.viewer3d, 3)
+
+        self.setCentralWidget(central_widget)
+
+    ####################
+    # VIEW GETTERS
+    ####################
+
+    def get_robot_view(self) -> RobotView:
+        """Retourne la vue de configuration du robot"""
+        return self.robot_view
+    
+    def get_joint_control_view(self) -> JointControlView:
+        """Retourne la vue de contrôle articulaire"""
+        return self.joint_control_view
+    
+    def get_cartesian_control_view(self) -> CartesianControlView:
+        """Retourne la vue de contrôle cartésien"""
+        return self.cartesian_control_view
