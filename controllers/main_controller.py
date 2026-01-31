@@ -4,6 +4,7 @@ from models.robot_model import RobotModel
 from controllers.robot_controller import RobotController
 from controllers.joint_control_controller import JointControlController
 from controllers.cartesian_control_controller import CartesianControlController
+from controllers.viewed3d_controller import Viewed3DController
 from views.main_window2 import MainWindow
 
 
@@ -18,6 +19,7 @@ class MainController(QObject):
         self.robot_controller = RobotController(robot_model, main_window.get_robot_view())
         self.joint_control_controller = JointControlController(robot_model, main_window.get_joint_control_view())
         self.cartesian_control_controller = CartesianControlController(robot_model, main_window.get_cartesian_control_view())
+        self.viewed3d_controller = Viewed3DController(robot_model, main_window.get_viewer3d())
 
         self._on_robot_model_config_changed()  # initial update
 
@@ -35,4 +37,5 @@ class MainController(QObject):
     def _on_config_loaded(self) -> None:
         self.main_window.viewer3d.load_cad(self.robot_model)
         self.main_window.viewer3d.set_transparency(True)
+    
     
