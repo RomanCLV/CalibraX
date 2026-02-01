@@ -15,4 +15,7 @@ class CorrectionTableController(QObject):
 
     def _setup_connections(self) -> None:
         """Configure les connexions de signaux entre la vue et le modèle du robot"""
-        pass
+        self.robot_model.corrections_changed.connect(self._on_model_corrections_changed)
+
+    def _on_model_corrections_changed(self):
+        self.correction_table_widget.set_corrections(self.robot_model.get_corrections())

@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QListWidget, QListWidgetItem, QAbstractItemView
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QListWidget, QListWidgetItem, QAbstractItemView, QLabel
 from PyQt5.QtCore import Qt
 
 from PyQt5.QtGui import QFont
@@ -45,6 +45,21 @@ class Viewer3DWidget(QWidget):
         
         self.frame_list.hide()
 
+        # --- LABEL EN HAUT À DROITE ---
+        self.msg_label = QLabel("", self.viewer)  # Parent = viewer pour l'overlay
+        self.msg_label.setStyleSheet("""
+            QLabel {
+                color: white;
+                background-color: transparent;
+                padding: 5px;
+                border-radius: 3px;
+            }
+        """)
+        self.msg_label.setAlignment(Qt.AlignRight | Qt.AlignTop)
+        # Position initiale (sera ajustée dans resizeEvent)
+        self.msg_label.adjustSize()
+        self._position_top_right_label()
+
         # Boutons de contrôle (CAD / Transparence / Repères global)
         toggle_layout = QHBoxLayout()
 
@@ -67,10 +82,26 @@ class Viewer3DWidget(QWidget):
         self.btn_toggle_transparency.clicked.connect(self._on_transparency_button_clicked)
         self.btn_toggle_axes.clicked.connect(self._on_axes_button_clicked)
 
-    def _force_gl_refresh(self):
-        size = self.viewer.size()
-        self.viewer.resize(size.width() + 1, size.height() + 1)
-        self.viewer.resize(size)
+    def _position_top_right_label(self):
+        """Positionne le label en haut à droite du viewer"""
+        viewer_width = self.viewer.width()
+        label_width = self.msg_label.width()
+        self.msg_label.move(viewer_width - label_width - 10, 10)
+
+    def resizeEvent(self, event):
+        """Repositionne le label lors du redimensionnement"""
+        super().resizeEvent(event)
+        self._position_top_right_label()
+
+    def _set_label_msg(self, txt: str):
+        self.msg_label.setText(txt)
+        self.msg_label.adjustSize()
+        self._position_top_right_label()
+
+    def _clear_label_msg(self):
+        self.msg_label.clear()
+        self.msg_label.adjustSize()
+        self._position_top_right_label()
 
     def on_frame_clicked(self, item: QListWidgetItem):
         """Gère le clic sur un élément de la liste"""
@@ -161,8 +192,10 @@ class Viewer3DWidget(QWidget):
         if self._cad_loaded:
             return
         
+        self._set_label_msg("CAD loading...")
         QApplication.processEvents()  # Force le traitement des événements pour afficher le curseur
         self.add_robot_links(robot_model.get_current_tcp_corrected_dh_matrices())
+        self._clear_label_msg()
         self._cad_loaded = True
 
     def load_robot_mesh(self, stl_path: str, transform_matrix, color: tuple[int, int, int]):

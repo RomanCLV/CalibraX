@@ -1,5 +1,7 @@
 from PyQt5.QtCore import QObject
+from PyQt5.QtWidgets import QDialog
 
+from dialogs.axis_limits_dialog import AxisLimitsDialog
 from models.robot_model import RobotModel
 from widgets.joint_control_view.joints_control_widget import JointsControlWidget
 
@@ -43,7 +45,27 @@ class JointsController(QObject):
         self.robot_model.set_joint(index, value)
 
     def _on_view_home_position_requested(self) -> None:
-        pass
+        self.robot_model.go_to_home_position()
 
     def _on_view_axis_limits_config_requested(self) -> None:
-        pass
+        """Callback: ouvrir la boîte de dialogue de configuration des limites"""
+        dialog = AxisLimitsDialog(
+            self.joint_control_widget,
+            self.robot_model.get_axis_limits(),
+            self.robot_model.get_home_position(),
+            self.robot_model.get_axis_reversed()
+        )
+        
+        if dialog.exec_() == QDialog.Accepted:
+            # Récupérer les données du dialogue
+            limits = dialog.get_limits()
+            home_pos = dialog.get_home_position()
+            axis_reversed = dialog.get_axis_reversed()
+
+            # Mettre à jour le modèle
+            self.robot_model.set_home_position(home_pos)
+            self.robot_model.inhibit_auto_compute_fk_tcp(True)
+            self.robot_model.set_axis_limits(limits)
+            self.robot_model.set_axis_reversed(axis_reversed)
+            self.robot_model.inhibit_auto_compute_fk_tcp(False)
+            self.robot_model.compute_fk_tcp()

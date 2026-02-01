@@ -22,7 +22,6 @@ class RobotModel(QObject):
     joints_changed = pyqtSignal()
     axis_reversed_changed = pyqtSignal()
     limits_changed = pyqtSignal()
-    home_position_changed = pyqtSignal()
     
     # Corrections
     corrections_changed = pyqtSignal()
@@ -118,6 +117,7 @@ class RobotModel(QObject):
         # Points de mesure (positions de référence)
         self.measurement_points: List[List[float]] = []
 
+        self._user_inhibit_compute_fk = False
         self._inhibit_compute_fk = False
 
     # ====================================================================
@@ -279,15 +279,21 @@ class RobotModel(QObject):
             return None
         return self.compute_fk(joints[0], joints[1], joints[2], joints[3], joints[4], joints[5])
 
+    def inhibit_auto_compute_fk_tcp(self, inhibit: bool):
+        self._user_inhibit_compute_fk = inhibit
+
+    def compute_fk_tcp(self):
+        self._update_tcp_pose() 
+
     def _update_tcp_pose(self):
-        if self._inhibit_compute_fk:
+        if self._inhibit_compute_fk or self._user_inhibit_compute_fk:
             return
         
         # update current axis config
         self._update_current_axis_config()
         # update TCP from FK
 
-        dh_matrices, corrected_matrices, dh_pose, corrected_pose, _ = self.compute_fk_joints(self.joint_values_not_inverted)
+        dh_matrices, corrected_matrices, dh_pose, corrected_pose, _ = self.compute_fk_joints(self.joint_values)
 
         self.current_tcp_dh_matrices = dh_matrices
         self.current_tcp_corrected_dh_matrices = corrected_matrices
@@ -333,6 +339,23 @@ class RobotModel(QObject):
         self.robot_name_changed.emit(name)
         
     # ============================================================================
+    # RÉGION: Home position
+    # ============================================================================
+
+    def get_home_position(self):
+        """Retourne la position home"""
+        return self.home_position.copy()
+
+    def set_home_position(self, home_pos: list[float]):
+        """Définit la position home"""
+        if len(home_pos) >= 6:
+            self.home_position = list(home_pos[:6])
+    
+    def go_to_home_position(self):
+        """Déplace les joints à la position home"""
+        self.set_joints(self.home_position)
+
+    # ============================================================================
     # RÉGION: Getters - Joints et axes
     # ============================================================================
     
@@ -359,10 +382,6 @@ class RobotModel(QObject):
     def get_axis_reversed(self):
         """Retourne les multiplicateurs d'axes"""
         return self.axis_reversed.copy()
-    
-    def get_home_position(self):
-        """Retourne la position home"""
-        return self.home_position.copy()
 
     # ============================================================================
     # RÉGION: Setters - Joints et axes
@@ -514,13 +533,12 @@ class RobotModel(QObject):
             self.corrections.append([0, 0, 0, 0, 0, 0])
         self.corrections = [row[:6] + [0]*(6-len(row)) for row in self.corrections[:6]]
         self.corrections_changed.emit()
-    
+
     def compute_corrections(self):
         """Calcule les corrections 6D basées sur les mesures"""
         # TODO : Implémenter le calcul des corrections
         self.corrections_changed.emit()
-
-        self._update_corrected_tcp_pose()
+        self._update_tcp_pose()
 
     # ============================================================================
     # RÉGION: Getters - Résultats cinématique
@@ -622,14 +640,12 @@ class RobotModel(QObject):
         self.measurements.clear()
         self.measurements_changed.emit()
         self.compute_corrections()
-        self._update_corrected_tcp_pose()
     
     def clear_measurement_points(self):
         """Efface tous les points de mesure"""
         self.measurement_points.clear()
         self.measurements_points_changed.emit()
         self.compute_corrections()
-        self._update_corrected_tcp_pose()
     
     # ============================================================================
     # RÉGION: Sérialisation / Désérialisation
@@ -696,18 +712,3 @@ class RobotModel(QObject):
 
         self._inhibit_compute_fk = False
         self._update_tcp_pose()
-
-    # ============================================================================
-    # RÉGION: Autres méthodes
-    # ============================================================================
-        
-    def set_home_position(self, home_pos: list[float]):
-        """Définit la position home"""
-        if len(home_pos) >= 6:
-            self.home_position = list(home_pos[:6])
-            self.home_position_changed.emit()
-    
-#    def set_target_tcp_pose(self, target_pose: list[float]):
-#        """Définit la pose TCP cible et met à jour les joints en conséquence"""
-#        mgi_result = self.compute_ik_target(target_pose)
-#        best_sol = self.get_best_mgi_solution(mgi_result)
