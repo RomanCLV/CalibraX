@@ -15,11 +15,15 @@ class MgiSolutionsController(QObject):
 
         self.mgi_solutions_widget.set_axis_limits(self.robot_model.get_axis_limits())
 
+        self._sync_widget_from_model()
+        self._is_updating_allowed_config_from_view = False
+
         self._setup_connection()
 
     def _setup_connection(self):
         self.robot_model.tcp_pose_changed.connect(self._on_model_tcp_pose_changed)
         self.robot_model.axis_limits_changed.connect(self._on_model_axis_limits_changed)
+        self.robot_model.allowed_config_changed.connect(self._on_model_allowed_configs_changed)
 
         self.mgi_solutions_widget.solution_selected.connect(self._on_view_solution_selected)
         self.mgi_solutions_widget.allowed_configs_changed.connect(self._on_view_allowed_configs_changed)
@@ -29,6 +33,10 @@ class MgiSolutionsController(QObject):
 
     def _on_model_axis_limits_changed(self):
         self.mgi_solutions_widget.set_axis_limits(self.robot_model.get_axis_limits())
+    
+    def _on_model_allowed_configs_changed(self):
+        if not self._is_updating_allowed_config_from_view:
+            self._sync_widget_from_model()
 
     def _on_view_solution_selected(self, config_key: MgiConfigKey):
         all_sol = self.robot_model.get_current_tcp_mgi_result()
@@ -37,5 +45,16 @@ class MgiSolutionsController(QObject):
             self.robot_model.set_joints(sol.joints)
 
     def _on_view_allowed_configs_changed(self):
-        # TODO: update configs filter
-        pass
+        self._is_updating_allowed_config_from_view = True
+        self.robot_model.set_allowed_configurations(self.mgi_solutions_widget.get_allowed_configs())
+        self._is_updating_allowed_config_from_view = False
+
+    def _sync_widget_from_model(self):
+        """Synchronise le widget avec l'état actuel du modèle"""
+        selector_widget = self.mgi_solutions_widget.get_config_selector()
+        allowed = self.robot_model.get_allowed_configurations()
+        
+        # Bloquer les signaux pendant la mise à jour
+        selector_widget.blockSignals(True)
+        selector_widget.set_allowed_configurations(allowed)
+        selector_widget.blockSignals(False)

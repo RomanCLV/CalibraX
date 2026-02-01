@@ -17,6 +17,8 @@ class RobotModel(QObject):
     
     # Paramètres DH
     dh_params_changed = pyqtSignal()
+
+    allowed_config_changed = pyqtSignal()
     
     # Joints et axes
     joints_changed = pyqtSignal()
@@ -180,6 +182,34 @@ class RobotModel(QObject):
 
     def _update_current_axis_config(self):
         self.current_axis_config = MgiConfigKey.identify_configuration_deg(self.joint_values_not_inverted, self.mgi_kuka_config_identifier)
+
+    def set_mgi_configuration_filter(self, config_filter: MgiConfigurationFilter) -> None:
+        """Définit le filtre de configuration MGI"""
+        self.MGI_solver.set_configuration_filter(config_filter)
+        self.allowed_config_changed.emit()
+        self._update_tcp_pose()
+    
+    def get_mgi_configuration_filter(self) -> MgiConfigurationFilter:
+        """Récupère le filtre de configuration MGI actuel"""
+        return self.MGI_solver.get_configuration_filter()
+    
+    def set_allowed_configurations(self, allowed_configs: set[MgiConfigKey]) -> None:
+        """Définit les configurations autorisées à partir d'un ensemble"""
+        config_filter = MgiConfigurationFilter(allowed_configs) if allowed_configs else MgiConfigurationFilter.allow_all()
+        self.set_mgi_configuration_filter(config_filter)
+    
+    def get_allowed_configurations(self) -> set[MgiConfigKey]:
+        """Récupère l'ensemble des configurations autorisées"""
+        filter = self.get_mgi_configuration_filter()
+        if filter.allowed_configs is None:
+            # Toutes les configs sont autorisées
+            return set(MgiConfigKey)
+        return filter.allowed_configs.copy()
+    
+    def get_configuration_states(self) -> dict[MgiConfigKey, bool]:
+        """Récupère l'état de chaque configuration (autorisée ou non)"""
+        allowed = self.get_allowed_configurations()
+        return {key: key in allowed for key in MgiConfigKey}
 
     # ====================================================================
     # RÉGION: Inverse Kinematics

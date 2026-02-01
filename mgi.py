@@ -423,7 +423,7 @@ class MgiResult():
         Returns:
             (MgiConfigKey, MgiResultItem) de la meilleure solution, ou None si aucune solution valide
         """
-        current_config = MgiResult.identify_configuration(current_joints_rad, configuration_identifier)
+        current_config = MgiConfigKey.identify_configuration(current_joints_rad, configuration_identifier)
 
         valid_solutions = self.get_valid_solutions()
         if not valid_solutions:
@@ -537,6 +537,12 @@ class MGI():
 
     def set_geometric_params(self, geometric_params: MgiGeometricParams):
         self.params.geometric_params = geometric_params
+
+    def set_configuration_filter(self, configuration_filter: MgiConfigurationFilter):
+        self.params.configuration_filter = configuration_filter
+
+    def get_configuration_filter(self) -> MgiConfigurationFilter:
+        return self.params.configuration_filter
 
     def set_tool(self, tool: RobotTool):
         self.tool = tool
@@ -1246,10 +1252,10 @@ class MGI():
             else:
                 results.apply_axis_limits(axis_limits_to_use)
             
-            # Appliquer le filtre des configurations
-            results.filter_configurations(self.params.configuration_filter)
+        # Appliquer le filtre des configurations
+        results.filter_configurations(self.params.configuration_filter)
 
-            results.all_solutions_evaluated = True
+        results.all_solutions_evaluated = True
         return results
 
     def compute_mgi_target(self, target: list[float], returnDegrees: bool = True, verbose=False):

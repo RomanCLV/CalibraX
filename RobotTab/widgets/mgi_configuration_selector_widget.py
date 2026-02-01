@@ -81,14 +81,22 @@ class MgiConfigurationSelectorWidget(QWidget):
     # ---------------------------------------------------------
 
     def get_states(self) -> dict[MgiConfigKey, bool]:
+        """Récupère l'état de toutes les configurations"""
         return dict(self._config_states)
 
     def get_allowed_configurations(self) -> set[MgiConfigKey]:
+        """Récupère uniquement les configurations autorisées"""
         return {k for k, v in self._config_states.items() if v}
 
-    def set_states(self, states: dict[MgiConfigKey, bool]):
+    def set_states(self, states: dict[MgiConfigKey, bool]) -> None:
+        """Définit l'état de toutes les configurations (mise à jour externe)"""
         self._config_states = dict(states)
         for key, cb in self._checkboxes.items():
             cb.blockSignals(True)
             cb.setChecked(self._config_states.get(key, False))
             cb.blockSignals(False)
+    
+    def set_allowed_configurations(self, allowed: set[MgiConfigKey]) -> None:
+        """Définit les configurations autorisées (mise à jour externe)"""
+        states = {key: key in allowed for key in MgiConfigKey}
+        self.set_states(states)

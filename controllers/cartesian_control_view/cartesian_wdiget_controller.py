@@ -21,5 +21,12 @@ class CartesianWidgetController(QObject):
         self.cartesian_control_widget.set_all_cartesian(self.robot_model.get_tcp_pose())
 
     def _on_view_cartesian_value_changed(self, idx: int, value: float):
-        pass
+        target = self.robot_model.get_tcp_pose()
+        target[idx] = value
+
+        mgi_result = self.robot_model.compute_ik_target(target)
+        best_sol = self.robot_model.get_best_mgi_solution(mgi_result)
+
+        if best_sol:
+            self.robot_model.set_joints(best_sol[1].joints)
     
