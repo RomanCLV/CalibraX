@@ -47,7 +47,7 @@ class MgiConfigKey(Enum):
         Identifie la configuration à partir des valeurs articulaires.
         
         Args:
-            joints: Liste des 6 angles articulaires [q1, q2, q3, q4, q5, q6]
+            joints: Liste des 6 angles articulaires en radians [q1, q2, q3, q4, q5, q6]
             config_identifier: L'identifieur de configuration du robot
         
         Returns:
@@ -57,6 +57,21 @@ class MgiConfigKey(Enum):
         is_up = config_identifier.is_up(joints[2])
         is_flipped = config_identifier.is_flipped(joints[3])
         return MgiConfigKey.get_mgi_config_key_from(is_front, is_up, is_flipped)
+
+    @staticmethod
+    def identify_configuration_deg(joints: list[float],  config_identifier: ConfigurationIdentifier) -> MgiConfigKey:
+        """
+        Identifie la configuration à partir des valeurs articulaires.
+        
+        Args:
+            joints: Liste des 6 angles articulaires en degrés [q1, q2, q3, q4, q5, q6]
+            config_identifier: L'identifieur de configuration du robot
+        
+        Returns:
+            La clé de configuration correspondante
+        """
+        return MgiConfigKey.identify_configuration([radians(deg) for deg in joints], config_identifier)
+
 
 FRONT_CONFIG_KEYS = [MgiConfigKey.FUN, MgiConfigKey.FUF, MgiConfigKey.FDN, MgiConfigKey.FDF]
 BACK_CONFIG_KEYS = [MgiConfigKey.BUN, MgiConfigKey.BUF, MgiConfigKey.BDN, MgiConfigKey.BDF]
@@ -408,7 +423,7 @@ class MgiResult():
         Returns:
             (MgiConfigKey, MgiResultItem) de la meilleure solution, ou None si aucune solution valide
         """
-        current_config = MgiResult.identify_configuration(current_joints_rad, configuration_identifier)
+        current_config = MgiConfigKey.identify_configuration(current_joints_rad, configuration_identifier)
 
         valid_solutions = self.get_valid_solutions()
         if not valid_solutions:
@@ -522,6 +537,12 @@ class MGI():
 
     def set_geometric_params(self, geometric_params: MgiGeometricParams):
         self.params.geometric_params = geometric_params
+
+    def set_configuration_filter(self, configuration_filter: MgiConfigurationFilter):
+        self.params.configuration_filter = configuration_filter
+
+    def get_configuration_filter(self) -> MgiConfigurationFilter:
+        return self.params.configuration_filter
 
     def set_tool(self, tool: RobotTool):
         self.tool = tool
@@ -1231,10 +1252,10 @@ class MGI():
             else:
                 results.apply_axis_limits(axis_limits_to_use)
             
-            # Appliquer le filtre des configurations
-            results.filter_configurations(self.params.configuration_filter)
+        # Appliquer le filtre des configurations
+        results.filter_configurations(self.params.configuration_filter)
 
-            results.all_solutions_evaluated = True
+        results.all_solutions_evaluated = True
         return results
 
     def compute_mgi_target(self, target: list[float], returnDegrees: bool = True, verbose=False):

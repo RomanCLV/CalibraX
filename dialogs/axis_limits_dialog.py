@@ -1,4 +1,3 @@
-from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QWidget, QDialog, QVBoxLayout, QHBoxLayout, QTableWidget, 
     QTableWidgetItem, QPushButton, QApplication, QCheckBox
@@ -31,6 +30,8 @@ class AxisLimitsDialog(QDialog):
         
         # Initialiser la table avec les valeurs actuelles
         for i in range(6):
+            axis_name = f"q{i+1}"
+            
             # Min value
             min_item = QTableWidgetItem(str(self.current_limits[i][0]))
             self.table_limits.setItem(i, 0, min_item)
@@ -48,15 +49,7 @@ class AxisLimitsDialog(QDialog):
             # Vérifier si l'axe est inversé (-1) en fonction de la liste
             is_reversed = isinstance(self.reversed_axes, list) and self.reversed_axes[i] == -1
             checkbox.setChecked(is_reversed)
-
-            # Créer un widget container pour centrer la checkbox
-            container = QWidget()
-            layout = QHBoxLayout(container)
-            layout.addWidget(checkbox)
-            layout.setAlignment(Qt.AlignCenter)
-            layout.setContentsMargins(0, 0, 0, 0)  # Supprimer les marges
-
-            self.table_limits.setCellWidget(i, 3, container)
+            self.table_limits.setCellWidget(i, 3, checkbox)
         
         # Boutons
         btn_layout = QHBoxLayout()

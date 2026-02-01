@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QTabWidget
 
-from RobotTab.widgets.viewer_3d_widget import Viewer3DWidget
+from widgets.viewer_3d_widget import Viewer3DWidget
 from views.robot_view import RobotView
 from views.joint_control_view import JointControlView
 from views.cartesian_control_view import CartesianControlView
@@ -51,6 +51,10 @@ class MainWindow(QMainWindow):
     def get_cartesian_control_view(self) -> CartesianControlView:
         """Retourne la vue de contrôle cartésien"""
         return self.cartesian_control_view
+    
+    def get_viewer3d(self) -> Viewer3DWidget:
+        """Retourne la vue du viewer 3D"""
+        return self.viewer3d
 
     #####################
     # Functions
