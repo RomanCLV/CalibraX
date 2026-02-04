@@ -225,7 +225,7 @@ class RobotModel(QObject):
 
     def get_best_mgi_solution(self, mgi_result: MgiResult):
         joints_rad = [math.radians(q) for q in self.joint_values]
-        return mgi_result.get_best_solution_from_current(joints_rad, self.mgi_kuka_config_identifier, True)
+        return mgi_result.get_best_solution_from_current(joints_rad)
     
     # ====================================================================
     # RÉGION: Forward Kinematics
@@ -288,6 +288,8 @@ class RobotModel(QObject):
             T_corrected = math_utils.correction_6d(T_corrected, *corr)
             corrected_matrices.append(T_corrected.copy())
         
+        # AJOUT DU TOOL
+
         # Extraction position et orientation
         dh_pos = T_dh[:3, 3]
         dh_ori = math_utils.matrix_to_euler_zyx(T_dh)

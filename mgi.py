@@ -405,59 +405,39 @@ class MgiResult():
         best_key = max(valid.keys(), key=score)
         return best_key, valid[best_key]
 
-    def get_best_solution_from_current(self, 
-                                      current_joints_rad: list[float],
-                                      configuration_identifier: ConfigurationIdentifier,
-                                      prioritize_same_config: bool = True,
-                                      joint_weights: list[float] | None = None) -> tuple[MgiConfigKey, MgiResultItem] | None:
+    def get_best_solution_from_current(self,
+                                       current_joints_rad: list[float],
+                                       joint_weights: list[float] = None) -> tuple[MgiConfigKey, MgiResultItem] | None:
         """
         Trouve la meilleure solution en fonction de la position courante.
         
         Args:
             current_joints_rad: Position articulaire courante [q1, q2, q3, q4, q5, q6]
-            configuration_identifier: L'identifieur de config
-            prioritize_same_config: Si True, priorise fortement la même configuration
-            joint_weights: Poids pour chaque joint dans le calcul de distance (par défaut tous égaux)
-                          Utile pour pénaliser plus les mouvements des gros axes
         
         Returns:
             (MgiConfigKey, MgiResultItem) de la meilleure solution, ou None si aucune solution valide
         """
-        current_config = MgiConfigKey.identify_configuration(current_joints_rad, configuration_identifier)
-
         valid_solutions = self.get_valid_solutions()
         if not valid_solutions:
             return None
         
-        # Poids par défaut : tous égaux
-        if joint_weights is None:
+        if not joint_weights:
             joint_weights = [1.0] * 6
         
-        # Si on a une seule solution, pas besoin de chercher
-        if len(valid_solutions) == 1:
-            key, sol = next(iter(valid_solutions.items()))
-            return key, sol
+        while len(joint_weights) < 6:
+            joint_weights.append(1.0)
         
         # Normaliser les angles courants dans [-pi, pi]
-        current_normalized = [MgiResult._normalize_angle(q) for q in current_joints_rad]
+        # current_normalized = [MgiResult._normalize_angle(q) for q in current_joints_rad]
         
-        best_key = None
+        best_key: MgiConfigKey = None
         best_distance = float('inf')
         
         for key, sol in valid_solutions.items():
-            # Bonus si c'est la même configuration
-            config_bonus = 0.0
-            if prioritize_same_config and current_config is not None and key == current_config:
-                config_bonus = -1000.0  # Grosse pénalité négative = forte priorité
-            
-            # Calculer la distance pondérée
-            sol_normalized = [MgiResult._normalize_angle(q) for q in sol.joints]
-            distance = MgiResult._compute_weighted_distance(
-                current_normalized, 
-                sol_normalized, 
-                joint_weights
-            ) + config_bonus
-            
+            sol_joints_rad = [radians(q) for q in sol.joints]
+            # sol_normalized = [MgiResult._normalize_angle(q) for q in sol_joints_rad]
+            # distance = sum((c - s)**2 for c, s in zip(current_normalized, sol_normalized))
+            distance = sum((joint_weights[i] * (c - s)**2) for i, (c, s) in enumerate(zip(current_joints_rad, sol_joints_rad)))
             if distance < best_distance:
                 best_distance = distance
                 best_key = key
@@ -472,23 +452,7 @@ class MgiResult():
         while angle_rad < -pi:
             angle_rad += 2 * pi
         return angle_rad
-    
-    @staticmethod
-    def _compute_weighted_distance(joints1: list[float], joints2: list[float], weights: list[float]) -> float:
-        """
-        Calcule la distance pondérée entre deux configurations.
-        Gère les discontinuités angulaires (ex: -179° et +179° sont proches)
-        """
-        total_distance = 0.0
-        for q1, q2, w in zip(joints1, joints2, weights):
-            # Différence angulaire en tenant compte de la périodicité
-            diff = abs(q1 - q2)
-            # Prendre le chemin le plus court (important pour les angles)
-            if diff > pi:
-                diff = 2 * pi - diff
-            total_distance += w * diff * diff  # Distance quadratique
-        
-        return sqrt(total_distance)
+
 
 class MGI():
 
@@ -524,6 +488,7 @@ class MGI():
         self.tool = tool
         self.defaultQ1RadSingularityValue = 0.0
         self.defaultQ4RadSingularityValue = 0.0
+        self.defaultQ6RadSingularityValue = 0.0
         self._resolution_vars = MGI.ResolutionVariables()
 
     def set_params(self, params: MgiGeometricParams):
@@ -558,6 +523,12 @@ class MGI():
     
     def set_q4ValueIfSingularityQ5Deg(self, deg: float):
         self.defaultQ4RadSingularityValue = radians(deg)
+
+    def set_q6ValueIfSingularityQ5(self, rad: float):
+        self.defaultQ6RadSingularityValue = rad
+    
+    def set_q6ValueIfSingularityQ5Deg(self, deg: float):
+        self.defaultQ6RadSingularityValue = radians(deg)
 
     def _compute_radians(self, a_deg: float, b_deg: float, c_deg: float):
         self._resolution_vars.compute_trig(a_deg, b_deg, c_deg)
@@ -1063,11 +1034,14 @@ class MGI():
 
                 q4Aa1 = self.defaultQ4RadSingularityValue
                 q4Aa2 = MGI._add_pi(q4Aa1)
+
                 if self.params.configuration_identifier.is_flipped(q4Aa1):
                     q4Aa1, q4Aa2 = q4Aa2, q4Aa1 # q4Aa1 is no flipped
 
                 q5Aa1, q5Aa2 = 0, 0 # Peut etre qu'il faudra ajouter un test pour savoir si c'est 0, pi ou -pi
-                q6Aa1, q6Aa2 = MGI._add_pi(q4Aa1), MGI._add_pi(q4Aa2)
+
+                q6Aa1  = self.defaultQ6RadSingularityValue
+                q6Aa2 = MGI._add_pi(q6Aa1)
 
                 front_up_no_flipped_solution.setQ456(q4Aa1, q5Aa1, q6Aa1)
                 front_up_flipped_solution.setQ456(q4Aa2, q5Aa2, q6Aa2)
@@ -1104,7 +1078,8 @@ class MGI():
                     q4Ab1, q4Ab2 = q4Ab2, q4Ab1 # q4Ab1 is no flipped
 
                 q5Ab1, q5Ab2 = 0, 0 # Peut etre qu'il faudra ajouter un test pour savoir si c'est 0, pi ou -pi
-                q6Ab1, q6Ab2 = MGI._add_pi(q4Ab1), MGI._add_pi(q4Ab2)
+                q6Ab1  = self.defaultQ6RadSingularityValue
+                q6Ab2 = MGI._add_pi(q6Ab1)
 
                 front_down_no_flipped_solution.setQ456(q4Ab1, q5Ab1, q6Ab1)
                 front_down_flipped_solution.setQ456(q4Ab2, q5Ab2, q6Ab2)
@@ -1141,7 +1116,9 @@ class MGI():
                     q4Ba1, q4Ba2 = q4Ba2, q4Ba1 # q4Ba1 is no flipped
 
                 q5Ba1, q5Ba2 = 0, 0 # Peut etre qu'il faudra ajouter un test pour savoir si c'est 0, pi ou -pi
-                q6Ba1, q6Ba2 = MGI._add_pi(q4Ba1), MGI._add_pi(q4Ba2)
+
+                q6Ba1  = self.defaultQ6RadSingularityValue
+                q6Ba2 = MGI._add_pi(q6Ba1)
 
                 back_up_no_flipped_solution.setQ456(q4Ba1, q5Ba1, q6Ba1)
                 back_up_flipped_solution.setQ456(q4Ba2, q5Ba2, q6Ba2)
@@ -1178,7 +1155,9 @@ class MGI():
                     q4Bb1, q4Bb2 = q4Bb2, q4Bb1 # q4Bb1 is no flipped
 
                 q5Bb1, q5Bb2 = 0, 0 # Peut etre qu'il faudra ajouter un test pour savoir si c'est 0, pi ou -pi
-                q6Bb1, q6Bb2 = MGI._add_pi(q4Bb1), MGI._add_pi(q4Bb2)
+
+                q6Bb1  = self.defaultQ6RadSingularityValue
+                q6Bb2 = MGI._add_pi(q6Bb1)
 
                 back_down_no_flipped_solution.setQ456(q4Bb1, q5Bb1, q6Bb1)
                 back_down_flipped_solution.setQ456(q4Bb2, q5Bb2, q6Bb2)
