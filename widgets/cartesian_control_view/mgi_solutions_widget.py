@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QBrush
 
-from RobotTab.widgets.mgi_configuration_selector_widget import MgiConfigurationSelectorWidget
+from widgets.cartesian_control_view.mgi_configuration_selector_widget import MgiConfigurationSelectorWidget
 
 from mgi import (
     MgiResult,

@@ -427,31 +427,17 @@ class MgiResult():
         while len(joint_weights) < 6:
             joint_weights.append(1.0)
         
-        # Normaliser les angles courants dans [-pi, pi]
-        # current_normalized = [MgiResult._normalize_angle(q) for q in current_joints_rad]
-        
         best_key: MgiConfigKey = None
         best_distance = float('inf')
         
         for key, sol in valid_solutions.items():
             sol_joints_rad = [radians(q) for q in sol.joints]
-            # sol_normalized = [MgiResult._normalize_angle(q) for q in sol_joints_rad]
-            # distance = sum((c - s)**2 for c, s in zip(current_normalized, sol_normalized))
             distance = sum((joint_weights[i] * (c - s)**2) for i, (c, s) in enumerate(zip(current_joints_rad, sol_joints_rad)))
             if distance < best_distance:
                 best_distance = distance
                 best_key = key
         
         return best_key, valid_solutions[best_key]
-    
-    @staticmethod
-    def _normalize_angle(angle_rad: float) -> float:
-        """Normalise un angle dans [-pi, pi]"""
-        while angle_rad > pi:
-            angle_rad -= 2 * pi
-        while angle_rad < -pi:
-            angle_rad += 2 * pi
-        return angle_rad
 
 
 class MGI():

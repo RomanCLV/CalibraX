@@ -24,6 +24,7 @@ class RobotModel(QObject):
     joints_changed = pyqtSignal()
     axis_reversed_changed = pyqtSignal()
     axis_limits_changed = pyqtSignal()
+    joint_weights_changed = pyqtSignal()
     
     # Corrections
     corrections_changed = pyqtSignal()
@@ -60,6 +61,9 @@ class RobotModel(QObject):
         
         # Multiplicateurs d'axes (1 = normal, -1 = inversé)
         self.axis_reversed: List[int] = [1, 1, 1, 1, 1, 1]
+        
+        # Poids des joints pour la sélection de la meilleure solution MGI
+        self.joint_weights: List[float] = [1.0] * 6
         
         # ====================================================================
         # RÉGION: Paramètres Denavit-Hartenberg
@@ -225,7 +229,7 @@ class RobotModel(QObject):
 
     def get_best_mgi_solution(self, mgi_result: MgiResult):
         joints_rad = [math.radians(q) for q in self.joint_values]
-        return mgi_result.get_best_solution_from_current(joints_rad)
+        return mgi_result.get_best_solution_from_current(joints_rad, self.joint_weights)
     
     # ====================================================================
     # RÉGION: Forward Kinematics
@@ -417,6 +421,22 @@ class RobotModel(QObject):
     def get_axis_reversed(self):
         """Retourne les multiplicateurs d'axes"""
         return self.axis_reversed.copy()
+
+    def get_joint_weights(self):
+        """Retourne les poids des joints"""
+        return self.joint_weights.copy()
+
+    def set_joint_weights(self, joint_weights: list[float]):
+        """Définit les poids des joints"""
+        if len(joint_weights) >= 6:
+            self.joint_weights = list(joint_weights[:6])
+            self.joint_weights_changed.emit()
+
+    def set_joint_weights_single(self, index: int, weight: float):
+        """Définit le poids d'un joint spécifique"""
+        if 0 <= index < 6:
+            self.joint_weights[index] = weight
+            self.joint_weights_changed.emit()
 
     # ============================================================================
     # RÉGION: Setters - Joints et axes
