@@ -19,7 +19,10 @@ class RobotModel(QObject):
     dh_params_changed = pyqtSignal()
 
     allowed_config_changed = pyqtSignal()
-    
+
+    # Tool
+    tool_changed = pyqtSignal()
+
     # Joints et axes
     joints_changed = pyqtSignal()
     axis_reversed_changed = pyqtSignal()
@@ -89,7 +92,10 @@ class RobotModel(QObject):
             MgiSingularitiesBehavior(MgiSingularityBehavior.CONTINUE),
             MgiConfigurationFilter.allow_all())
         
-        self.MGI_solver = MGI(self.mgi_params, None)
+        self.tool = RobotTool()
+        self._build_T_tool()
+
+        self.MGI_solver = MGI(self.mgi_params, self.tool)
 
         self.current_tcp_mgi_result: MgiResult = MgiResult()
 
@@ -146,7 +152,7 @@ class RobotModel(QObject):
 
         Hypothèse :
         - Robot 6 axes anthropomorphique
-        - dh_table contient au moins 6 lignes - 7e ligne : pour le Tool
+        - dh_table contient au moins 6 lignes
         """
 
         if len(dh_table) < 6:
@@ -172,11 +178,6 @@ class RobotModel(QObject):
         r6 = dh_table[5][3]   # d6
 
         return MgiGeometricParams(r1, d2, d3, d4, r4, r6)
-    
-    @staticmethod
-    def _mgi_build_tool(dh_table: List[List[float]]) -> RobotTool:
-        # TODO : Tool from dh_table
-        return RobotTool()
     
     def get_config_identifier(self):
         return self.mgi_kuka_config_identifier
@@ -266,23 +267,17 @@ class RobotModel(QObject):
         ]
         
         # Calcul itératif des transformations pour 6 joints + outil
-        for i in range(7):
+        for i in range(6):
             # Récupérer les paramètres DH
             alpha = np.radians(self.get_dh_param(i, 0))
             d = self.get_dh_param(i, 1)
             theta_offset = np.radians(self.get_dh_param(i, 2))
             r = self.get_dh_param(i, 3)
-            
-            # Pour les 6 premiers joints, ajouter la valeur articulaire
-            if i < 6:
-                q_deg = compute_joints[i]
-                q = np.radians(q_deg)
-                theta = theta_offset + q
-                corr = self.get_correction_joint(i)
-            else:
-                # Joint 7 (tool) : pas de variable articulaire
-                theta = theta_offset
-                corr = [0, 0, 0, 0, 0, 0]
+
+            q_deg = compute_joints[i]
+            q = np.radians(q_deg)
+            theta = theta_offset + q
+            corr = self.get_correction_joint(i)
             
             # Transformation DH standard
             T_dh = T_dh @ math_utils.dh_modified(alpha, d, theta, r)
@@ -293,7 +288,12 @@ class RobotModel(QObject):
             T_corrected = math_utils.correction_6d(T_corrected, *corr)
             corrected_matrices.append(T_corrected.copy())
         
-        # AJOUT DU TOOL
+        T_dh = T_dh @ self.T_tool
+        dh_matrices.append(T_dh.copy())
+
+        T_corrected = T_corrected @ self.T_tool
+        T_corrected = math_utils.correction_6d(T_corrected, 0, 0, 0, 0, 0, 0)
+        corrected_matrices.append(T_corrected.copy())
 
         # Extraction position et orientation
         dh_pos = T_dh[:3, 3]
@@ -352,6 +352,31 @@ class RobotModel(QObject):
 
     def get_current_tcp_mgi_result(self):
         return self.current_tcp_mgi_result
+
+    # ============================================================================
+    # RÉGION: Tool
+    # ============================================================================
+    
+    def get_tool(self):
+        return self.tool
+    
+    def set_tool(self, tool: RobotTool):
+        self.tool = tool
+        self.MGI_solver.set_tool(tool)
+        self._build_T_tool()
+        self.tool_changed.emit()
+        self._update_tcp_pose()
+
+    def _build_T_tool(self):
+        # Transformation du tool
+        ta_rad = radians(self.tool.a)
+        tb_rad = radians(self.tool.b)
+        tc_rad = radians(self.tool.c)
+        R_tool = MGI._rot_z(ta_rad) @ MGI._rot_y(tb_rad) @ MGI._rot_x(tc_rad)
+        T_tool = np.eye(4)
+        T_tool[:3, :3] = R_tool
+        T_tool[:3, 3] = [self.tool.x, self.tool.y, self.tool.z]
+        self.T_tool = T_tool
 
     # ============================================================================
     # RÉGION: Getters - Configuration générale
@@ -514,11 +539,11 @@ class RobotModel(QObject):
     
     def get_dh_param(self, row: int, col: int):
         """Retourne un paramètre DH spécifique"""
-        return self.dh_params[row][col] if 0 <= row < 7 and 0 <= col < 4 else 0
+        return self.dh_params[row][col] if 0 <= row < 6 and 0 <= col < 4 else 0
     
     def get_dh_row(self, row: int):
         """Retourne une ligne complète de paramètres DH"""
-        return self.dh_params[row].copy() if 0 <= row < 7 else [0, 0, 0, 0]
+        return self.dh_params[row].copy() if 0 <= row < 6 else [0, 0, 0, 0]
     
     # ============================================================================
     # RÉGION: Setters - Paramètres DH
@@ -527,17 +552,17 @@ class RobotModel(QObject):
     def set_dh_params(self, params: list[list[float]]):
         """Définit tous les paramètres DH"""
         self.dh_params = [list(row) for row in params]
-        # Assurer 7 lignes
-        while len(self.dh_params) < 7:
+        # Assurer 6 lignes
+        while len(self.dh_params) < 6:
             self.dh_params.append([0, 0, 0, 0])
-        self.dh_params = self.dh_params[:7]
+        self.dh_params = self.dh_params[:6]
         self.dh_params_changed.emit()
         self.MGI_solver.set_geometric_params(RobotModel._mgi_build_geometric_params(self.dh_params))
         self._update_tcp_pose()
     
     def set_dh_param(self, row: int, col: int, value: float):
         """Définit un paramètre DH spécifique"""
-        if 0 <= row < 7 and 0 <= col < 4:
+        if 0 <= row < 6 and 0 <= col < 4:
             try:
                 self.dh_params[row][col] = float(value)
                 self.dh_params_changed.emit()
@@ -551,7 +576,7 @@ class RobotModel(QObject):
     
     def set_dh_row(self, row: int, values: list[float]):
         """Définit une ligne complète de paramètres DH"""
-        if 0 <= row < 7 and len(values) >= 4:
+        if 0 <= row < 6 and len(values) >= 4:
             try:
                 self.dh_params[row] = [float(v) for v in values[:4]]
                 self.dh_params_changed.emit()
@@ -717,6 +742,7 @@ class RobotModel(QObject):
             "axis_limits": self.axis_limits,
             "axis_reversed": self.axis_reversed,
             "home_position": self.home_position,
+            "tool": [self.tool.x, self.tool.y, self.tool.z, self.tool.a, self.tool.b, self.tool.c]
         }
     
     def load_from_dict(self, data: str, file_name: str=None):
@@ -734,7 +760,7 @@ class RobotModel(QObject):
         # Paramètres DH
         if "dh" in data:
             dh_list = [[float(val) if val else 0 for val in row] for row in data["dh"]]
-            while len(dh_list) < 7:
+            while len(dh_list) < 6:
                 dh_list.append([0, 0, 0, 0])
             self.set_dh_params(dh_list)
         
@@ -760,6 +786,11 @@ class RobotModel(QObject):
         # Position home
         if "home_position" in data:
             self.set_home_position(data["home_position"])
+
+        # Tool
+        if "tool" in data and len(data["tool"]) >= 6:
+            tool_data = data["tool"]
+            self.set_tool(RobotTool(tool_data[0], tool_data[1], tool_data[2], tool_data[3], tool_data[4], tool_data[5]))
             
         self.has_confifiguration = True
 

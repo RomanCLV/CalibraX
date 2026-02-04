@@ -1,9 +1,12 @@
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QGridLayout,
+    QWidget, QVBoxLayout, QGridLayout, QHBoxLayout,
     QLabel, QPushButton, QLineEdit, QTableWidget,
     QTableWidgetItem, QAbstractItemView
 )
 from PyQt5.QtCore import pyqtSignal
+
+from widgets.robot_view.tool_widget import ToolWidget
+from mgi import RobotTool
 
 class DHTableWidget(QWidget):
     """Widget pour la configuration du robot (table DH)"""
@@ -13,6 +16,7 @@ class DHTableWidget(QWidget):
     text_changed_requested = pyqtSignal()
     export_config_requested = pyqtSignal()
     dh_value_changed = pyqtSignal(int, int, str)  # row, col, value
+    tool_changed = pyqtSignal(RobotTool)  # tool changed
     
     def __init__(self, parent: QWidget = None):
         super().__init__(parent)
@@ -20,13 +24,16 @@ class DHTableWidget(QWidget):
     
     def setup_ui(self):
         """Initialise l'interface du widget"""
-        layout = QVBoxLayout(self)
+        main_layout = QHBoxLayout(self)
+        
+        # Partie gauche : Configuration et table DH
+        left_layout = QVBoxLayout()
         
         # En-tête
         th_layout = QGridLayout()
         titre1 = QLabel("Configuration robot")
         titre1.setStyleSheet("font-size: 14px; font-weight: bold;")
-        layout.addWidget(titre1)
+        left_layout.addWidget(titre1)
         
         self.lineEdit_robot_name_th = QLineEdit()
         self.lineEdit_robot_name_th.setReadOnly(False)
@@ -42,21 +49,26 @@ class DHTableWidget(QWidget):
         self.btn_export_th.clicked.connect(self.export_config_requested.emit)
         th_layout.addWidget(self.btn_export_th, 0, 3)
         
-        layout.addLayout(th_layout)
+        left_layout.addLayout(th_layout)
         
         # Table DH
         table_dh_titre = QLabel("Table de Denavit-Hartenberg")
-        layout.addWidget(table_dh_titre)
+        left_layout.addWidget(table_dh_titre)
         
-        self.table_dh = QTableWidget(7, 4)
+        self.table_dh = QTableWidget(6, 4)
         self.table_dh.setHorizontalHeaderLabels(["alpha (°)", "d (mm)", "theta (°)", "r (mm)"])
         self.table_dh.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.table_dh.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.table_dh.horizontalHeader().setDefaultSectionSize(90)
         self.table_dh.cellChanged.connect(self._on_cell_changed)
-        layout.addWidget(self.table_dh)
+        left_layout.addWidget(self.table_dh)
         
-        self.setLayout(layout)
+        main_layout.addLayout(left_layout)
+        
+        # Partie droite : Widget outil
+        self.tool_widget = ToolWidget()
+        self.tool_widget.tool_changed.connect(self.tool_changed.emit)
+        main_layout.addWidget(self.tool_widget)
     
     def _on_cell_changed(self, row, col):
         """Callback interne quand une cellule change"""
@@ -91,4 +103,12 @@ class DHTableWidget(QWidget):
                 row.append(item.text() if item else "")
             params.append(row)
         return params
+    
+    def set_tool(self, tool: RobotTool):
+        """Définit l'outil dans le widget"""
+        self.tool_widget.set_tool(tool)
+    
+    def get_tool(self) -> RobotTool:
+        """Récupère l'outil depuis le widget"""
+        return self.tool_widget.get_tool()
 

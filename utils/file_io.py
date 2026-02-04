@@ -6,9 +6,9 @@ class FileIOHandler:
     """Gestion des opérations d'import/export de fichiers"""
     
     @staticmethod
-    def save_json(parent: QWidget, title: str, data: dict[str, Any]):
+    def save_json(parent: QWidget, title: str, data: dict[str, Any], directory: str=None):
         """Sauvegarde des données en JSON"""
-        file_name, _ = QFileDialog.getSaveFileName(parent, title, "", "JSON Files (*.json)")
+        file_name, _ = QFileDialog.getSaveFileName(parent, title, directory, "JSON Files (*.json)")
         if file_name:
             with open(file_name, "w") as f:
                 json.dump(data, f, indent=4)

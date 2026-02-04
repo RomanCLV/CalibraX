@@ -27,6 +27,7 @@ class DHTableController(QObject):
         # Signals from View
         self.dh_table_widget.text_changed_requested.connect(self._on_view_name_changed)
         self.dh_table_widget.dh_value_changed.connect(self._on_view_dh_value_changed)
+        self.dh_table_widget.tool_changed.connect(self._on_view_tool_changed)
         self.dh_table_widget.load_config_requested.connect(self._on_view_load_config_requested)
         self.dh_table_widget.export_config_requested.connect(self._on_view_export_config_requested)
 
@@ -37,6 +38,7 @@ class DHTableController(QObject):
     def _on_robot_configuration_changed(self) -> None:
         self.update_robot_name_view()
         self.update_dh_table_view()
+        self.update_tool_view()
 
     def _on_robot_name_changed(self) -> None:
         self.update_robot_name_view()
@@ -51,11 +53,14 @@ class DHTableController(QObject):
         fval = str_to_float(value)
         self.robot_model.set_dh_param(row, col, fval)
     
+    def _on_view_tool_changed(self, tool) -> None:
+        self.robot_model.set_tool(tool)
+    
     def _on_view_load_config_requested(self) -> None:
         self.load_configuration()
 
     def _on_view_export_config_requested(self) -> None:
-        self.export_configuration
+        self.export_configuration()
 
     # ======
     # Methods
@@ -66,6 +71,9 @@ class DHTableController(QObject):
     
     def update_dh_table_view(self) -> None:
         self.dh_table_widget.set_dh_params(self.robot_model.get_dh_params())
+
+    def update_tool_view(self) -> None:
+        self.dh_table_widget.set_tool(self.robot_model.get_tool())
 
     def load_configuration(self):
         """Charger une configuration depuis un fichier json"""
@@ -88,12 +96,13 @@ class DHTableController(QObject):
 
     def export_configuration(self):
         """Exporter la configuration actuelle"""
+        currentDir = os.getcwd()
+        configurationDir = os.path.join(currentDir, 'configurations') 
+
         data = self.robot_model.to_dict()
-        file_name = FileIOHandler.save_json(
-            self,
+        FileIOHandler.save_json(
+            self.dh_table_widget,
             "Exporter/Sauvegarder une configuration robot",
-            data
+            data,
+            configurationDir if os.path.exists(configurationDir) else currentDir
         )
-        if file_name:
-            self.dh_table_widget.set_robot_name(file_name)
-    
