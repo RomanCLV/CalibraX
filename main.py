@@ -37,8 +37,9 @@ class MGDApplication:
         config_file, data = FileIOHandler.load_json(config_file)
         if data:
             self.robot_model.load_from_dict(data, config_file)
-            self.main_window.viewer3d.load_cad(self.robot_model)
-            self.main_window.viewer3d.set_transparency(True)
+            self.main_window.get_viewer3d().load_cad(self.robot_model)
+            self.main_window.get_viewer3d().set_transparency(True)
+            self.main_window.get_viewer3d().toogle_base_axis_frames()
 
     def run(self):
         self.main_window.showMaximized()
