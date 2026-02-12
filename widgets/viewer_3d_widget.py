@@ -34,7 +34,7 @@ class Viewer3DWidget(QWidget):
         self.viewer.opts['glOptions'] = 'translucent'
         self.viewer.opts['depth'] = True
         self.viewer.setCameraPosition(distance=2000, elevation=40, azimuth=45)
-        self.viewer.setMinimumSize(900, 400)
+        #self.viewer.setMinimumSize(900, 400)
         self.viewer.setBackgroundColor(45, 45, 48, 255)
         layout.addWidget(self.viewer)
 
