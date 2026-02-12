@@ -1,10 +1,12 @@
-from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QTabWidget
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QTabWidget, QSplitter
 
 from widgets.viewer_3d_widget import Viewer3DWidget
 from views.robot_view import RobotView
 from views.joint_control_view import JointControlView
 from views.cartesian_control_view import CartesianControlView
 from views.jog_view import JogView
+from views.trajectory_view import TrajectoryView
 
 class MainWindow(QMainWindow):
 
@@ -18,26 +20,38 @@ class MainWindow(QMainWindow):
         self.joint_control_view = JointControlView()
         self.cartesian_control_view = CartesianControlView()
         self.jog_view = JogView()
+        self.trajectory_view = TrajectoryView()
 
         self.viewer3d = Viewer3DWidget()
 
         self._setup_ui()
     
     def _setup_ui(self) -> None:
-        """Configure l'interface utilisateur de la fenêtre principale"""
+        central_widget = QWidget(self)
+        self.setCentralWidget(central_widget)
 
-        central_widget = QWidget()
-        
         self.tabs.addTab(self.robot_view, "Robot")
         self.tabs.addTab(self.joint_control_view, "Contrôle articulaire")
         self.tabs.addTab(self.cartesian_control_view, "Contrôle cartésien")
         self.tabs.addTab(self.jog_view, "Jog")
+        self.tabs.addTab(self.trajectory_view, "Trajectoire")
 
-        layout = QHBoxLayout(central_widget)
-        layout.addWidget(self.tabs, 2)
-        layout.addWidget(self.viewer3d, 3)
+        splitter = QSplitter(Qt.Orientation.Horizontal, central_widget)
+        splitter.setHandleWidth(6)
+        splitter.addWidget(self.tabs)
+        splitter.addWidget(self.viewer3d)
 
-        self.setCentralWidget(central_widget)
+        # Taille initiale (équivalent de tes "2" et "3")
+        splitter.setStretchFactor(0, 2)
+        splitter.setStretchFactor(1, 3)
+        splitter.setSizes([400, 600])  # optionnel : donne une taille de départ plus stable
+
+        # Optionnel : empêcher que l'un des deux disparaisse complètement
+        splitter.setChildrenCollapsible(False)
+
+        layout = QVBoxLayout(central_widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(splitter)
 
     ####################
     # VIEW GETTERS
@@ -58,6 +72,10 @@ class MainWindow(QMainWindow):
     def get_jog_view(self) -> JogView:
         """Retourne la vue de jog"""
         return self.jog_view
+
+    def get_trajectory_view(self) -> TrajectoryView:
+        """Retourne la vue de trajectoire"""
+        return self.trajectory_view
     
     def get_viewer3d(self) -> Viewer3DWidget:
         """Retourne la vue du viewer 3D"""
@@ -72,4 +90,5 @@ class MainWindow(QMainWindow):
         self.tabs.setTabEnabled(1, robot_has_configuration)
         self.tabs.setTabEnabled(2, robot_has_configuration)
         self.tabs.setTabEnabled(3, robot_has_configuration)
+        self.tabs.setTabEnabled(4, robot_has_configuration)
     

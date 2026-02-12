@@ -19,23 +19,23 @@ class MGDApplication:
 
         self.app.setWindowIcon(QIcon(icon_path))
 
-        self.load_theme()
+        #self.load_theme("themes/test.qss")
 
         self.robot_model = RobotModel()
         self.main_window = MainWindow()
 
         self.main_controller = MainController(self.robot_model, self.main_window)
 
-    def load_theme(self):
+    def load_theme(self, file: str = "themes/dark_theme.qss"):
         try:
-            with open("themes/dark_theme.qss", "r") as f:
+            with open(file, "r") as f:
                 self.app.setStyleSheet(f.read())
         except FileNotFoundError:
-            print("Fichier dark_theme.qss non trouvé, thème par défaut utilisé")
+            print(f"Fichier {file} non trouvé, thème par défaut utilisé")
 
     def load_data(self, config_file: str):
         config_file, data = FileIOHandler.load_json(config_file)
-        if data:
+        if data and config_file:
             self.robot_model.load_from_dict(data, config_file)
             self.main_window.get_viewer3d().load_cad(self.robot_model)
             self.main_window.get_viewer3d().set_transparency(True)
