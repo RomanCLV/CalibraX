@@ -11,6 +11,11 @@ class GraphMode(Enum):
 class TrajectoryGraphPanelWidget(QWidget):
     """Graph panel for a trajectory (articular or cartesian)."""
 
+    POSITION_LBL = "Position"
+    VELOCITY_LBL = "Vitesse"
+    ACCELERATION_LBL = "Acceleration"
+    TIME_LBL = "Temps"
+
     AXIS_COLORS = ["#ff3b30", "#34c759", "#007aff", "#ff00ff", "#ffd60a", "#00ffff"]
     AXIS_LABELS = {
         GraphMode.CARTESIAN: ["X", "Y", "Z", "A", "B", "C"],
@@ -21,12 +26,17 @@ class TrajectoryGraphPanelWidget(QWidget):
         GraphMode.ARTICULAR: "Articulaire",
     }
 
+    @staticmethod
+    def lblWithUnit(lbl: str, unit: str) -> str:
+        return f"{lbl} ({unit})"
+
     def __init__(self, mode: GraphMode = GraphMode.CARTESIAN, parent: QWidget = None) -> None:
         super().__init__(parent)
 
         self.mode = mode
         self.title_label = QLabel()
         self.axis_checkboxes: List[QCheckBox] = []
+        self.axis_labels: List[QCheckBox] = []
 
         self.position_plot = pg.PlotWidget()
         self.velocity_plot = pg.PlotWidget()
@@ -55,11 +65,22 @@ class TrajectoryGraphPanelWidget(QWidget):
 
         header_layout = QHBoxLayout()
         for i in range(6):
+            row_layout = QHBoxLayout()
+
             cb = QCheckBox()
             cb.setChecked(True)
             cb.toggled.connect(self._update_visibility)
             self.axis_checkboxes.append(cb)
-            header_layout.addWidget(cb)
+
+            lbl = QLabel()
+            lbl.setStyleSheet(f"color: {self.AXIS_COLORS[i]}")
+            self.axis_labels.append(lbl)
+
+            row_layout.addWidget(cb)
+            row_layout.addWidget(lbl)
+            
+            header_layout.addLayout(row_layout)
+
         header_layout.addStretch()
         layout.addLayout(header_layout)
 
@@ -68,11 +89,11 @@ class TrajectoryGraphPanelWidget(QWidget):
         layout.addWidget(self.acceleration_plot)
 
     def _setup_plots(self) -> None:
-        titles = ["Position", "Vitesse", "Accéleration"]
+        titles = [self.POSITION_LBL, self.VELOCITY_LBL, self.ACCELERATION_LBL]
         for plot, title in zip(self._plots, titles):
             plot.showGrid(x=True, y=True, alpha=0.3)
             plot.setTitle(title)
-            plot.setLabel("bottom", "Temps (s)")
+            plot.setLabel("bottom", TrajectoryGraphPanelWidget.lblWithUnit(self.TIME_LBL, "s"))
 
         for plot in self._plots:
             items = []
@@ -90,19 +111,16 @@ class TrajectoryGraphPanelWidget(QWidget):
         self.title_label.setText(self.TITLE_MAP.get(mode, mode))
 
         labels = self.AXIS_LABELS[mode]
-        for cb, label, color in zip(self.axis_checkboxes, labels, self.AXIS_COLORS):
-            cb.setStyleSheet(f"color: {color}")
-            cb.setText(label)
+        for lbl, label in zip(self.axis_labels, labels):
+            lbl.setText(label)
 
         position_unit, velocity_unit, acceleration_unit = self._unit_labels()
-        self.position_plot.setLabel("left", f"Position ({position_unit})")
-        self.velocity_plot.setLabel("left", f"Vitesse ({velocity_unit})")
-        self.acceleration_plot.setLabel("left", f"Accéleration ({acceleration_unit})")
+        self.position_plot.setLabel("left", TrajectoryGraphPanelWidget.lblWithUnit(self.POSITION_LBL, position_unit))
+        self.velocity_plot.setLabel("left", TrajectoryGraphPanelWidget.lblWithUnit(self.VELOCITY_LBL, velocity_unit))
+        self.acceleration_plot.setLabel("left", TrajectoryGraphPanelWidget.lblWithUnit(self.ACCELERATION_LBL, acceleration_unit))
 
     def _unit_labels(self) -> tuple[str, str, str]:
-        if self.mode == GraphMode.ARTICULAR:
-            return "deg", "deg/s", "deg/s^2"
-        return "mm / deg", "mm/s / deg/s", "mm/s^2 / deg/s^2"
+        return "°", "°/s", "°/s²" if self.mode == GraphMode.ARTICULAR else "mm", "mm/s", "mm/s²"
 
     def set_trajectories(
         self,

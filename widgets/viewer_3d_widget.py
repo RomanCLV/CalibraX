@@ -28,6 +28,7 @@ class Viewer3DWidget(QWidget):
 
     def setup_ui(self):
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
 
         # Viewer 3D
         self.viewer = gl.GLViewWidget()

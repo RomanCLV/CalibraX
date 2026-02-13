@@ -50,7 +50,6 @@ class MainWindow(QMainWindow):
         splitter.setChildrenCollapsible(False)
 
         layout = QVBoxLayout(central_widget)
-        layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(splitter)
 
     ####################
