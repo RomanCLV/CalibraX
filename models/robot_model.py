@@ -742,8 +742,32 @@ class RobotModel(QObject):
     # RÉGION: Sérialisation / Désérialisation
     # ============================================================================
     
+    @staticmethod
+    def _parse_mgi_config_key(raw_value):
+        """Convertit une valeur JSON en MgiConfigKey si possible."""
+        if isinstance(raw_value, MgiConfigKey):
+            return raw_value
+
+        if isinstance(raw_value, str):
+            key_name = raw_value.strip().upper()
+            if key_name in MgiConfigKey.__members__:
+                return MgiConfigKey[key_name]
+            try:
+                return MgiConfigKey(int(key_name))
+            except (ValueError, TypeError):
+                return None
+
+        if isinstance(raw_value, (int, float)):
+            try:
+                return MgiConfigKey(int(raw_value))
+            except (ValueError, TypeError):
+                return None
+
+        return None
+
     def to_dict(self):
         """Export vers dictionnaire (pour sauvegarde JSON)"""
+        allowed_configs = self.get_allowed_configurations()
         return {
             "name": [self.robot_name],
             "dh": [[str(val) for val in row] for row in self.dh_params[:6]],
@@ -751,6 +775,8 @@ class RobotModel(QObject):
             "q": self.joint_values,
             "axis_limits": self.axis_limits,
             "axis_reversed": self.axis_reversed,
+            "joint_weights": self.joint_weights,
+            "allowed_configs": [cfg.name for cfg in MgiConfigKey if cfg in allowed_configs],
             "home_position": self.home_position,
             "tool": [self.tool.x, self.tool.y, self.tool.z, self.tool.a, self.tool.b, self.tool.c]
         }
@@ -788,6 +814,37 @@ class RobotModel(QObject):
         # Multiplicateurs d'axes
         if "axis_reversed" in data:
             self.set_axis_reversed(list(data["axis_reversed"]))
+
+        # Poids des joints
+        if "joint_weights" in data and isinstance(data["joint_weights"], list):
+            joint_weights = []
+            for value in data["joint_weights"][:6]:
+                try:
+                    joint_weights.append(float(value))
+                except (ValueError, TypeError):
+                    joint_weights.append(1.0)
+            while len(joint_weights) < 6:
+                joint_weights.append(1.0)
+            self.set_joint_weights(joint_weights)
+
+        # Configurations MGI autorisees
+        raw_allowed_configs = data.get("allowed_configs", data.get("allowed_configurations"))
+        if raw_allowed_configs is not None:
+            allowed_configs = set()
+
+            if isinstance(raw_allowed_configs, dict):
+                for key, is_allowed in raw_allowed_configs.items():
+                    if is_allowed:
+                        parsed_key = RobotModel._parse_mgi_config_key(key)
+                        if parsed_key is not None:
+                            allowed_configs.add(parsed_key)
+            elif isinstance(raw_allowed_configs, list):
+                for key in raw_allowed_configs:
+                    parsed_key = RobotModel._parse_mgi_config_key(key)
+                    if parsed_key is not None:
+                        allowed_configs.add(parsed_key)
+
+            self.set_allowed_configurations(allowed_configs)
         
         # Limites des axes
         if "axis_limits" in data:
