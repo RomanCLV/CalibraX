@@ -8,7 +8,7 @@ from PyQt6.QtGui import QColor, QBrush
 from widgets.cartesian_control_view.mgi_configuration_selector_widget import MgiConfigurationSelectorWidget
 from widgets.cartesian_control_view.mgi_joint_weights_widget import MgiJointWeightsWidget
 
-from mgi import (
+from utils.mgi import (
     MgiResult,
     MgiResultItem,
     MgiConfigKey,

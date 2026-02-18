@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from mgi import MgiConfigKey
+from utils.mgi import MgiConfigKey
 from models.trajectory_keypoint import KeypointMotionMode, KeypointTargetType, TrajectoryKeypoint
 from models.robot_model import RobotModel
 

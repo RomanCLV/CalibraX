@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import pyqtSignal
 
-from mgi import MgiConfigKey
+from utils.mgi import MgiConfigKey
 
 
 class MgiConfigurationSelectorWidget(QWidget):

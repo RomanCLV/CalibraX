@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import Enum
 import math
 
-from mgi import ConfigurationIdentifier, MgiConfigKey
+from utils.mgi import ConfigurationIdentifier, MgiConfigKey
 
 
 class KeypointTargetType(Enum):

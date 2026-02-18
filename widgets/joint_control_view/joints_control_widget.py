@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (
     QLabel, QPushButton, QSlider, QDoubleSpinBox, QSizePolicy
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from mgi import MgiConfigKey
+from utils.mgi import MgiConfigKey
 
 
 class JointsControlWidget(QWidget):

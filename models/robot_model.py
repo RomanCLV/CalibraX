@@ -1,7 +1,7 @@
 from PyQt6.QtCore import QObject, pyqtSignal
 from typing import List, Tuple
 import math
-from mgi import *
+from utils.mgi import *
 import utils.math_utils as math_utils
 from models.robot_configuration_file import RobotConfigurationFile
 
@@ -741,7 +741,8 @@ class RobotModel(QObject):
     
     # ============================================================================
     # RÉGION: Sérialisation / Désérialisation
-    # ============================================================================
+    # ============================================================================
+
     def to_configuration_file(self) -> RobotConfigurationFile:
         """Construit un objet de configuration depuis l'etat courant."""
         return RobotConfigurationFile.from_robot_model(self)

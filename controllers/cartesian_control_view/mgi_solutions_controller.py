@@ -2,7 +2,7 @@ from PyQt6.QtCore import QObject
 
 from models.robot_model import RobotModel
 from widgets.cartesian_control_view.mgi_solutions_widget import MgiSolutionsWidget
-from mgi import MgiResult, MgiConfigKey, MgiResultStatus
+from utils.mgi import MgiResult, MgiConfigKey, MgiResultStatus
 
 
 class MgiSolutionsController(QObject):

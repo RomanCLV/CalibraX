@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 import json
 from typing import Any, TYPE_CHECKING
 
-from mgi import MgiConfigKey, RobotTool
+from utils.mgi import MgiConfigKey, RobotTool
 
 if TYPE_CHECKING:
     from models.robot_model import RobotModel

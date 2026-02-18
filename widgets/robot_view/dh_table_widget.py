@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import pyqtSignal
 
 from widgets.robot_view.tool_widget import ToolWidget
-from mgi import RobotTool
+from utils.mgi import RobotTool
 
 class DHTableWidget(QWidget):
     """Widget pour la configuration du robot (table DH)"""
