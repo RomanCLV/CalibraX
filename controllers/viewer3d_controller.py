@@ -3,7 +3,7 @@ from PyQt6.QtCore import QObject
 from models.robot_model import RobotModel
 from widgets.viewer_3d_widget import Viewer3DWidget
 
-class Viewed3DController(QObject):
+class Viewer3DController(QObject):
     def __init__(self, robot_model: RobotModel, viewer_3d_widget: Viewer3DWidget, parent: QObject = None):
         super().__init__(parent)
         self.robot_model = robot_model
