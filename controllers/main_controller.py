@@ -6,6 +6,7 @@ from controllers.joint_control_controller import JointControlController
 from controllers.cartesian_control_controller import CartesianControlController
 from controllers.jog_controller import JogController
 from controllers.viewer3d_controller import Viewer3DController
+from controllers.trajectory_controller import TrajectoryController
 from views.main_window import MainWindow
 
 
@@ -22,6 +23,7 @@ class MainController(QObject):
         self.cartesian_control_controller = CartesianControlController(robot_model, main_window.get_cartesian_control_view())
         self.jog_controller = JogController(robot_model, main_window.get_jog_view())
         self.viewer3d_controller = Viewer3DController(robot_model, main_window.get_viewer3d())
+        self.trajectory_controller = TrajectoryController(robot_model, main_window.get_trajectory_view(), self.viewer3d_controller)
 
         self._on_robot_model_config_changed()  # initial update
 

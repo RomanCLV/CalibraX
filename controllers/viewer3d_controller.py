@@ -8,6 +8,8 @@ class Viewer3DController(QObject):
         super().__init__(parent)
         self.robot_model = robot_model
         self.viewer_3d_widget = viewer_3d_widget
+        self._ghost_visible = False
+        self._ghost_joints: list[float] = [0.0] * 6
 
         self._setup_connections()
 
@@ -16,3 +18,22 @@ class Viewer3DController(QObject):
 
     def _update_tcp_pose(self) -> None:
         self.viewer_3d_widget.update_robot(self.robot_model)
+
+    def show_robot_ghost(self) -> None:
+        self._ghost_visible = True
+        self.viewer_3d_widget.show_robot_ghost()
+
+    def hide_robot_ghost(self) -> None:
+        self._ghost_visible = False
+        self.viewer_3d_widget.hide_robot_ghost()
+
+    def update_robot_ghost(self, joints: list[float]) -> None:
+        if len(joints) < 6:
+            self.hide_robot_ghost()
+            return
+
+        self._ghost_joints = [float(joint) for joint in joints[:6]]
+        if not self._ghost_visible:
+            self.show_robot_ghost()
+
+        self.viewer_3d_widget.update_robot_ghost(self._ghost_joints)

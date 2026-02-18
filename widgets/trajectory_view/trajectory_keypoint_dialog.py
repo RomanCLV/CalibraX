@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -21,13 +21,14 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from utils.mgi import MgiConfigKey
+from utils.mgi import MgiConfigKey, MgiResultStatus
 from models.trajectory_keypoint import KeypointMotionMode, KeypointTargetType, TrajectoryKeypoint
 from models.robot_model import RobotModel
 
 
 class TrajectoryKeypointDialog(QDialog):
     """Dialog to edit a single trajectory keypoint."""
+    updateRobotGhostRequested = pyqtSignal(list)
 
     CONFIG_ORDER = [
         MgiConfigKey.FUN,
@@ -42,7 +43,7 @@ class TrajectoryKeypointDialog(QDialog):
 
     def __init__(self, robot_model: RobotModel, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Point cle")
+        self.setWindowTitle("Point clé")
         self.robot_model = robot_model
 
         self.target_type_combo = QComboBox()
@@ -51,6 +52,7 @@ class TrajectoryKeypointDialog(QDialog):
 
         self.cartesian_target_spins: list[QDoubleSpinBox] = []
         self.joint_target_spins: list[QDoubleSpinBox] = []
+        self.cartesian_error_label = QLabel("")
 
         self.mode_combo = QComboBox()
         self.speed_spin = QDoubleSpinBox()
@@ -183,6 +185,13 @@ class TrajectoryKeypointDialog(QDialog):
             spin = self._make_spin(-10000.0, 10000.0, 3, 0.1)
             self.cartesian_target_spins.append(spin)
             grid.addWidget(spin, row, col + 1)
+
+        self.cartesian_error_label.setStyleSheet("color: #d9534f;")
+        self.cartesian_error_label.setWordWrap(True)
+        self.cartesian_error_label.setMinimumHeight(self.cartesian_error_label.fontMetrics().lineSpacing() * 2 + 4)
+        self.cartesian_error_label.setText("")
+        grid.addWidget(self.cartesian_error_label, 2, 0, 1, 6)
+
         group.setLayout(grid)
         return group
 
@@ -214,17 +223,57 @@ class TrajectoryKeypointDialog(QDialog):
             cb.toggled.connect(self._on_config_checkbox_toggled)
         for spin in self.joint_target_spins:
             spin.valueChanged.connect(self._on_joint_target_changed)
+        for spin in self.cartesian_target_spins:
+            spin.valueChanged.connect(self._on_cartesian_target_changed)
 
     def _on_use_current_target_clicked(self) -> None:
         if self._current_target_type() == KeypointTargetType.CARTESIAN:
             current_target = list(self.robot_model.get_tcp_pose())
             for i, spin in enumerate(self.cartesian_target_spins):
                 spin.setValue(current_target[i] if i < len(current_target) else 0.0)
+            self._emit_ghost_update()
             return
 
         current_joints = list(self.robot_model.get_joints())
         for i, spin in enumerate(self.joint_target_spins):
             spin.setValue(current_joints[i] if i < len(current_joints) else 0.0)
+        self._emit_ghost_update()
+
+    def _compute_ghost_joint_values(self) -> list[float]:
+        if self._current_target_type() == KeypointTargetType.JOINT:
+            self._set_cartesian_error("")
+            return [spin.value() for spin in self.joint_target_spins]
+
+        target = [spin.value() for spin in self.cartesian_target_spins]
+        mgi_result = self.robot_model.compute_ik_target(target)
+        valid_solutions = mgi_result.get_valid_solutions()
+        if not valid_solutions:
+            self._set_cartesian_error("Aucune solution valide pour la target cartesienne.")
+            return []
+
+        favorite = self._current_favorite_config()
+        favorite_solution = valid_solutions.get(favorite)
+        if favorite_solution is not None and len(favorite_solution.joints) >= 6:
+            self._set_cartesian_error("")
+            return [float(joint) for joint in favorite_solution.joints[:6]]
+
+        best_solution = self.robot_model.get_best_mgi_solution(mgi_result)
+        if best_solution is not None:
+            _, best_result_item = best_solution
+            if len(best_result_item.joints) >= 6:
+                self._set_cartesian_error("")
+                return [float(joint) for joint in best_result_item.joints[:6]]
+
+        self._set_cartesian_error("Aucune solution exploitable pour la target cartesienne.")
+        return []
+
+    def _emit_ghost_update(self) -> None:
+        joints = self._compute_ghost_joint_values()
+        if len(joints) > 0:
+            self.updateRobotGhostRequested.emit(joints)
+
+    def _set_cartesian_error(self, message: str) -> None:
+        self.cartesian_error_label.setText(message)
 
     def _current_target_type(self) -> KeypointTargetType:
         return KeypointTargetType(self.target_type_combo.currentData())
@@ -271,14 +320,21 @@ class TrajectoryKeypointDialog(QDialog):
         self._update_cubic_visibility()
         self._update_speed_editor()
         self._try_minimize_window_size()
+        self._emit_ghost_update()
 
     def _on_target_type_changed(self, _idx: int) -> None:
         self._update_target_editors()
         self._try_minimize_window_size()
+        self._emit_ghost_update()
 
     def _on_joint_target_changed(self, _value: float) -> None:
         if self._current_target_type() == KeypointTargetType.JOINT:
             self._sync_joint_mode_configs()
+        self._emit_ghost_update()
+
+    def _on_cartesian_target_changed(self, _value: float) -> None:
+        if self._current_target_type() == KeypointTargetType.CARTESIAN:
+            self._emit_ghost_update()
 
     def _on_config_checkbox_toggled(self, _checked: bool) -> None:
         if self._current_target_type() != KeypointTargetType.CARTESIAN:
@@ -291,11 +347,13 @@ class TrajectoryKeypointDialog(QDialog):
             cb.blockSignals(True)
             cb.setChecked(True)
             cb.blockSignals(False)
+            self._emit_ghost_update()
             return
 
         favorite = self._current_favorite_config()
         if favorite not in selected:
             self._set_favorite_combo(selected[0])
+        self._emit_ghost_update()
 
     def _on_favorite_changed(self, _idx: int) -> None:
         if self._current_target_type() != KeypointTargetType.CARTESIAN:
@@ -306,6 +364,7 @@ class TrajectoryKeypointDialog(QDialog):
             cb.blockSignals(True)
             cb.setChecked(True)
             cb.blockSignals(False)
+        self._emit_ghost_update()
 
     def _sync_joint_mode_configs(self) -> None:
         joint_target = [spin.value() for spin in self.joint_target_spins]
@@ -318,6 +377,7 @@ class TrajectoryKeypointDialog(QDialog):
             cb.blockSignals(True)
             cb.setChecked(key == deduced)
             cb.blockSignals(False)
+        self._emit_ghost_update()
 
     def _update_target_editors(self) -> None:
         is_joint = self._current_target_type() == KeypointTargetType.JOINT
@@ -332,6 +392,7 @@ class TrajectoryKeypointDialog(QDialog):
         )
 
         if is_joint:
+            self._set_cartesian_error("")
             self._sync_joint_mode_configs()
 
     def _update_cubic_visibility(self) -> None:
@@ -385,6 +446,7 @@ class TrajectoryKeypointDialog(QDialog):
         self._update_cubic_visibility()
         self._update_speed_editor()
         self._try_minimize_window_size()
+        self._emit_ghost_update()
 
     def get_keypoint(self) -> TrajectoryKeypoint:
         self._store_current_speed()

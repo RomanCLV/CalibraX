@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import pyqtSignal, QCoreApplication
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -28,6 +28,9 @@ class TrajectoryConfigWidget(QWidget):
     edit_requested = pyqtSignal()
     delete_requested = pyqtSignal()
     keypoints_changed = pyqtSignal(list)
+    showRobotGhostRequested = pyqtSignal()
+    hideRobotGhostRequested = pyqtSignal()
+    updateRobotGhostRequested = pyqtSignal(list)
 
     def __init__(self, robot_model: RobotModel, parent: QWidget = None) -> None:
         super().__init__(parent)
@@ -79,24 +82,36 @@ class TrajectoryConfigWidget(QWidget):
 
     def _on_add_clicked(self) -> None:
         dialog = TrajectoryKeypointDialog(self.robot_model, self)
+        self.showRobotGhostRequested.emit()
+
+        dialog.updateRobotGhostRequested.connect(self.updateRobotGhostRequested.emit)
         dialog.load_keypoint(TrajectoryKeypoint())
+
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._keypoints.append(dialog.get_keypoint())
             self._refresh_table()
             self.add_requested.emit()
             self._emit_keypoints_changed()
 
+        self.hideRobotGhostRequested.emit()
+
     def _on_edit_clicked(self) -> None:
         row = self._selected_row()
         if row is None:
             return
         dialog = TrajectoryKeypointDialog(self.robot_model, self)
+        self.showRobotGhostRequested.emit()
+
+        dialog.updateRobotGhostRequested.connect(self.updateRobotGhostRequested.emit)
         dialog.load_keypoint(self._keypoints[row])
+
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._keypoints[row] = dialog.get_keypoint()
             self._refresh_table()
             self.edit_requested.emit()
             self._emit_keypoints_changed()
+            
+        self.hideRobotGhostRequested.emit()
 
     def _on_delete_clicked(self) -> None:
         row = self._selected_row()
@@ -115,9 +130,7 @@ class TrajectoryConfigWidget(QWidget):
 
     @staticmethod
     def _keypoint_target_values(keypoint: TrajectoryKeypoint) -> list[float]:
-        if keypoint.target_type == KeypointTargetType.CARTESIAN:
-            return keypoint.cartesian_target
-        return keypoint.joint_target
+        return keypoint.cartesian_target if keypoint.target_type == KeypointTargetType.CARTESIAN else keypoint.joint_target
 
     @staticmethod
     def _speed_text(keypoint: TrajectoryKeypoint) -> str:
