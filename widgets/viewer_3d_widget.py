@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QListWidget, QListWidgetItem, QAbstractItemView, QLabel
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QBrush, QColor
 
 from PyQt6.QtGui import QFont
@@ -44,6 +44,18 @@ class Viewer3DWidget(QWidget):
         self.frame_list.setGeometry(10, 10, 150, 300) # Position et taille
         self.frame_list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.frame_list.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.frame_list.setStyleSheet("""
+            QListWidget {
+                background-color: rgba(25, 25, 28, 130);
+                color: lightgray;
+                border: 1px solid rgba(255, 255, 255, 35);
+                border-radius: 6px;
+                outline: 0;
+            }
+            QListWidget::item {
+                padding: 6px 8px;
+            }
+        """)
         
         self.frame_list.hide()
 
@@ -137,7 +149,8 @@ class Viewer3DWidget(QWidget):
             self.frame_list.clear()
             for i in range(count):
                 item = QListWidgetItem(f"Frame {i}")
-                item.setTextAlignment(Qt.AlignmentFlag.AlignLeft)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+                item.setSizeHint(QSize(0, 28))
                 self.frame_list.addItem(item)
             self.frame_list.show()
 
