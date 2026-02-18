@@ -39,7 +39,7 @@ class Viewer3DWidget(QWidget):
         self.viewer.setBackgroundColor(45, 45, 48, 255)
         layout.addWidget(self.viewer)
 
-        # --- LISTE DES REPÈRES (Overlay en haut à gauche) ---
+        # --- LISTE DES REPERES (Overlay en haut a droite) ---
         self.frame_list = QListWidget(self.viewer) # Parent = viewer pour l'overlay
         self.frame_list.setGeometry(10, 10, 150, 300) # Position et taille
         self.frame_list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
@@ -47,7 +47,7 @@ class Viewer3DWidget(QWidget):
         
         self.frame_list.hide()
 
-        # --- LABEL EN HAUT À DROITE ---
+        # --- LABEL EN HAUT A GAUCHE ---
         self.msg_label = QLabel("", self.viewer)  # Parent = viewer pour l'overlay
         self.msg_label.setStyleSheet("""
             QLabel {
@@ -57,10 +57,10 @@ class Viewer3DWidget(QWidget):
                 border-radius: 3px;
             }
         """)
-        self.msg_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+        self.msg_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         # Position initiale (sera ajustée dans resizeEvent)
         self.msg_label.adjustSize()
-        self._position_top_right_label()
+        self._position_overlays()
 
         # Boutons de contrôle (CAD / Transparence / Repères global)
         toggle_layout = QHBoxLayout()
@@ -88,26 +88,27 @@ class Viewer3DWidget(QWidget):
         self.btn_toggle_axes.clicked.connect(self._on_axes_button_clicked)
         self.btn_toggle_axes_base_tool.clicked.connect(self.toogle_base_axis_frames)
 
-    def _position_top_right_label(self):
-        """Positionne le label en haut à droite du viewer"""
-        viewer_width = self.viewer.width()
-        label_width = self.msg_label.width()
-        self.msg_label.move(viewer_width - label_width - 10, 10)
+    def _position_overlays(self):
+        """Positionne la liste en haut a droite et le label en haut a gauche"""
+        margin = 10
+        frame_list_x = max(margin, self.viewer.width() - self.frame_list.width() - margin)
+        self.frame_list.move(frame_list_x, margin)
+        self.msg_label.move(margin, margin)
 
     def resizeEvent(self, event):
-        """Repositionne le label lors du redimensionnement"""
+        """Repositionne les overlays lors du redimensionnement"""
         super().resizeEvent(event)
-        self._position_top_right_label()
+        self._position_overlays()
 
     def _set_label_msg(self, txt: str):
         self.msg_label.setText(txt)
         self.msg_label.adjustSize()
-        self._position_top_right_label()
+        self._position_overlays()
 
     def _clear_label_msg(self):
         self.msg_label.clear()
         self.msg_label.adjustSize()
-        self._position_top_right_label()
+        self._position_overlays()
 
     def on_frame_clicked(self, item: QListWidgetItem):
         """Gère le clic sur un élément de la liste"""
