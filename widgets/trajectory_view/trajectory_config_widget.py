@@ -100,6 +100,7 @@ class TrajectoryConfigWidget(QWidget):
                 joint_target=list(self.robot_model.get_joints()),
             )
         )
+        # TODO : donner la direction de trajectoire du dernier segment lorsqu'on l'aura
 
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._keypoints.append(dialog.get_keypoint())
@@ -118,7 +119,8 @@ class TrajectoryConfigWidget(QWidget):
 
         dialog.updateRobotGhostRequested.connect(self.updateRobotGhostRequested.emit)
         dialog.load_keypoint(self._keypoints[row])
-
+        # TODO : donner la direction de trajectoire du dernier segment lorsqu'on l'aura
+        
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._keypoints[row] = dialog.get_keypoint()
             self._refresh_table()
