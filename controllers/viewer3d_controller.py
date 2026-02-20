@@ -37,3 +37,12 @@ class Viewer3DController(QObject):
             self.show_robot_ghost()
 
         self.viewer_3d_widget.update_robot_ghost(self._ghost_joints)
+
+    def set_trajectory_path(self, points_xyz: list[list[float]]) -> None:
+        self.viewer_3d_widget.set_trajectory_path(points_xyz)
+
+    def clear_trajectory_path(self) -> None:
+        self.viewer_3d_widget.clear_trajectory_path()
+
+    def set_trajectory_cursor(self, point_xyz: list[float] | None) -> None:
+        self.viewer_3d_widget.set_trajectory_cursor(point_xyz)

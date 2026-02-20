@@ -17,6 +17,10 @@ class Viewer3DWidget(QWidget):
         super().__init__(parent)
         self.robot_links: list[gl.GLMeshItem] = []
         self.robot_ghost_links: list[gl.GLMeshItem] = []
+        self._trajectory_path_item: gl.GLLinePlotItem | None = None
+        self._trajectory_cursor_item: gl.GLScatterPlotItem | None = None
+        self._trajectory_path_points: np.ndarray | None = None
+        self._trajectory_cursor_point: np.ndarray | None = None
         self.last_dh_matrices = []
         self.last_corrected_matrices = []
         self.last_ghost_corrected_matrices = []
@@ -187,6 +191,54 @@ class Viewer3DWidget(QWidget):
     def clear_viewer(self):
         self.viewer.clear()
         self.add_grid()
+        self._trajectory_path_item = None
+        self._trajectory_cursor_item = None
+
+    def set_trajectory_path(self, points_xyz: list[list[float]]) -> None:
+        if len(points_xyz) < 2:
+            self._trajectory_path_points = None
+        else:
+            self._trajectory_path_points = np.array(points_xyz, dtype=float)
+        self._render_trajectory_overlay()
+
+    def clear_trajectory_path(self) -> None:
+        self._trajectory_path_points = None
+        self._trajectory_cursor_point = None
+        self._render_trajectory_overlay()
+
+    def set_trajectory_cursor(self, point_xyz: list[float] | None) -> None:
+        if point_xyz is None or len(point_xyz) < 3:
+            self._trajectory_cursor_point = None
+        else:
+            self._trajectory_cursor_point = np.array(point_xyz[:3], dtype=float)
+        self._render_trajectory_overlay()
+
+    def _render_trajectory_overlay(self) -> None:
+        if self._trajectory_path_item is not None:
+            self.viewer.removeItem(self._trajectory_path_item)
+            self._trajectory_path_item = None
+        if self._trajectory_cursor_item is not None:
+            self.viewer.removeItem(self._trajectory_cursor_item)
+            self._trajectory_cursor_item = None
+
+        if self._trajectory_path_points is not None and len(self._trajectory_path_points) >= 2:
+            self._trajectory_path_item = gl.GLLinePlotItem(
+                pos=self._trajectory_path_points,
+                color=(1.0, 0.84, 0.1, 0.85),
+                width=2,
+                antialias=True,
+            )
+            self.viewer.addItem(self._trajectory_path_item)
+
+        if self._trajectory_cursor_point is not None:
+            cursor_points = np.array([self._trajectory_cursor_point], dtype=float)
+            self._trajectory_cursor_item = gl.GLScatterPlotItem(
+                pos=cursor_points,
+                color=(1.0, 0.2, 0.2, 1.0),
+                size=10,
+                pxMode=True,
+            )
+            self.viewer.addItem(self._trajectory_cursor_item)
 
     def draw_frame(self, T, longueur=100, color: tuple[int, int, int]=None):
         """Dessine un repère unique"""
@@ -328,6 +380,7 @@ class Viewer3DWidget(QWidget):
             else:
                 for mesh_item in self.robot_ghost_links:
                     mesh_item.hide()
+        self._render_trajectory_overlay()
 
     def update_robot_poses(self, matrices):
         for i in range(min(len(self.robot_links), len(matrices))):
