@@ -31,6 +31,7 @@ from widgets.joint_control_view.joints_control_widget import JointsControlWidget
 class TrajectoryKeypointDialog(QDialog):
     """Dialog to edit a single trajectory keypoint."""
     updateRobotGhostRequested = pyqtSignal(list)
+    previewKeypointChanged = pyqtSignal(object)
 
     CONFIG_ORDER = [
         MgiConfigKey.FUN,
@@ -66,6 +67,7 @@ class TrajectoryKeypointDialog(QDialog):
         self._ptp_speed_percent = 75.0
         self._linear_speed_mps = 0.5
         self._last_mode = KeypointMotionMode.PTP
+        self._suspend_preview_emission = False
 
         self.cubic_group = QGroupBox("Vecteurs de la cubique")
         self.cubic_vector_1: list[QDoubleSpinBox] = []
@@ -213,9 +215,14 @@ class TrajectoryKeypointDialog(QDialog):
         self.use_current_target_btn.clicked.connect(self._on_use_current_target_clicked)
         self.use_home_target_btn.clicked.connect(self._on_use_home_target_clicked)
         self.mode_combo.currentTextChanged.connect(self._on_mode_changed)
+        self.speed_spin.valueChanged.connect(self._on_speed_changed)
         self.favorite_config_combo.currentIndexChanged.connect(self._on_favorite_changed)
         for cb in self.config_checkboxes:
             cb.toggled.connect(self._on_config_checkbox_toggled)
+        for spin in self.cubic_vector_1:
+            spin.valueChanged.connect(self._on_cubic_vectors_changed)
+        for spin in self.cubic_vector_2:
+            spin.valueChanged.connect(self._on_cubic_vectors_changed)
         self.joint_target_widget.joint_value_changed.connect(self._on_joint_target_changed)
         self.cartesian_target_widget.cartesian_value_changed.connect(self._on_cartesian_target_changed)
 
@@ -271,7 +278,13 @@ class TrajectoryKeypointDialog(QDialog):
         self._set_cartesian_error("Aucune solution exploitable pour la target cartesienne.")
         return []
 
+    def _emit_live_preview(self) -> None:
+        if self._suspend_preview_emission:
+            return
+        self.previewKeypointChanged.emit(self.get_keypoint())
+
     def _emit_ghost_update(self) -> None:
+        self._emit_live_preview()
         joints = self._compute_ghost_joint_values()
         self.updateRobotGhostRequested.emit(joints)
 
@@ -372,6 +385,12 @@ class TrajectoryKeypointDialog(QDialog):
             cb.blockSignals(False)
         self._emit_ghost_update()
 
+    def _on_speed_changed(self, *_args) -> None:
+        self._emit_live_preview()
+
+    def _on_cubic_vectors_changed(self, *_args) -> None:
+        self._emit_live_preview()
+
     def _sync_joint_mode_configs(self) -> None:
         joint_target = self.joint_target_widget.get_all_joints()
         deduced = TrajectoryKeypoint.identify_config_from_joint_target(
@@ -405,20 +424,25 @@ class TrajectoryKeypointDialog(QDialog):
         self.cubic_group.setVisible(self._current_mode() == KeypointMotionMode.CUBIC)
 
     def _update_speed_editor(self) -> None:
-        if self._current_mode() == KeypointMotionMode.PTP:
-            self.speed_unit_label.setText("%")
-            self.speed_spin.setRange(0.0, 100.0)
-            self.speed_spin.setDecimals(1)
-            self.speed_spin.setSingleStep(1.0)
-            self.speed_spin.setValue(self._clamp(self._ptp_speed_percent, 0.0, 100.0))
-        else:
-            self.speed_unit_label.setText("m/s")
-            self.speed_spin.setRange(0.0, 2.0)
-            self.speed_spin.setDecimals(3)
-            self.speed_spin.setSingleStep(0.01)
-            self.speed_spin.setValue(self._clamp(self._linear_speed_mps, 0.0, 2.0))
+        self.speed_spin.blockSignals(True)
+        try:
+            if self._current_mode() == KeypointMotionMode.PTP:
+                self.speed_unit_label.setText("%")
+                self.speed_spin.setRange(0.0, 100.0)
+                self.speed_spin.setDecimals(1)
+                self.speed_spin.setSingleStep(1.0)
+                self.speed_spin.setValue(self._clamp(self._ptp_speed_percent, 0.0, 100.0))
+            else:
+                self.speed_unit_label.setText("m/s")
+                self.speed_spin.setRange(0.0, 2.0)
+                self.speed_spin.setDecimals(3)
+                self.speed_spin.setSingleStep(0.01)
+                self.speed_spin.setValue(self._clamp(self._linear_speed_mps, 0.0, 2.0))
+        finally:
+            self.speed_spin.blockSignals(False)
 
     def load_keypoint(self, keypoint: TrajectoryKeypoint) -> None:
+        self._suspend_preview_emission = True
         target_type_idx = self.target_type_combo.findData(keypoint.target_type.value)
         if target_type_idx >= 0:
             self.target_type_combo.blockSignals(True)
@@ -450,6 +474,7 @@ class TrajectoryKeypointDialog(QDialog):
         self._update_cubic_visibility()
         self._update_speed_editor()
         self._try_minimize_window_size()
+        self._suspend_preview_emission = False
         self._emit_ghost_update()
 
     def get_keypoint(self) -> TrajectoryKeypoint:

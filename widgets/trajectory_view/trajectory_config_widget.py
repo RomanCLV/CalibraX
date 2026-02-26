@@ -29,6 +29,8 @@ class TrajectoryConfigWidget(QWidget):
     edit_requested = pyqtSignal()
     delete_requested = pyqtSignal()
     keypoints_changed = pyqtSignal(list)
+    trajectoryPreviewRequested = pyqtSignal(list)
+    trajectoryPreviewFinished = pyqtSignal()
     showRobotGhostRequested = pyqtSignal()
     hideRobotGhostRequested = pyqtSignal()
     updateRobotGhostRequested = pyqtSignal(list)
@@ -89,11 +91,25 @@ class TrajectoryConfigWidget(QWidget):
     def _emit_keypoints_changed(self) -> None:
         self.keypoints_changed.emit(self.get_keypoints())
 
+    def _emit_trajectory_preview(self, keypoints: list[TrajectoryKeypoint]) -> None:
+        self.trajectoryPreviewRequested.emit([keypoint.clone() for keypoint in keypoints])
+
+    def _on_add_preview_keypoint_changed(self, preview_keypoint: TrajectoryKeypoint) -> None:
+        self._emit_trajectory_preview([*self._keypoints, preview_keypoint])
+
+    def _on_edit_preview_keypoint_changed(self, row: int, preview_keypoint: TrajectoryKeypoint) -> None:
+        if row < 0 or row >= len(self._keypoints):
+            return
+        preview_keypoints = [keypoint.clone() for keypoint in self._keypoints]
+        preview_keypoints[row] = preview_keypoint.clone()
+        self._emit_trajectory_preview(preview_keypoints)
+
     def _on_add_clicked(self) -> None:
         dialog = TrajectoryKeypointDialog(self.robot_model, self)
         self.showRobotGhostRequested.emit()
 
         dialog.updateRobotGhostRequested.connect(self.updateRobotGhostRequested.emit)
+        dialog.previewKeypointChanged.connect(self._on_add_preview_keypoint_changed)
         dialog.load_keypoint(
             TrajectoryKeypoint(
                 cartesian_target=list(self.robot_model.get_tcp_pose()),
@@ -108,6 +124,7 @@ class TrajectoryConfigWidget(QWidget):
             self.add_requested.emit()
             self._emit_keypoints_changed()
 
+        self.trajectoryPreviewFinished.emit()
         self.hideRobotGhostRequested.emit()
 
     def _on_edit_clicked(self) -> None:
@@ -118,6 +135,7 @@ class TrajectoryConfigWidget(QWidget):
         self.showRobotGhostRequested.emit()
 
         dialog.updateRobotGhostRequested.connect(self.updateRobotGhostRequested.emit)
+        dialog.previewKeypointChanged.connect(lambda preview_keypoint: self._on_edit_preview_keypoint_changed(row, preview_keypoint))
         dialog.load_keypoint(self._keypoints[row])
         # TODO : donner la direction de trajectoire du dernier segment lorsqu'on l'aura
         
@@ -126,7 +144,8 @@ class TrajectoryConfigWidget(QWidget):
             self._refresh_table()
             self.edit_requested.emit()
             self._emit_keypoints_changed()
-            
+
+        self.trajectoryPreviewFinished.emit()
         self.hideRobotGhostRequested.emit()
 
     def _on_delete_clicked(self) -> None:

@@ -39,6 +39,7 @@ class TrajectoryController(QObject):
         self._current_time_s = 0.0
         self._playback_index = 0
         self._is_playing = False
+        self._is_keypoint_preview_active = False
         self._playback_timer = QTimer(self)
         self._playback_timer.setSingleShot(False)
         self._playback_timer.timeout.connect(self._on_playback_tick)
@@ -50,6 +51,8 @@ class TrajectoryController(QObject):
         self.config_widget.showRobotGhostRequested.connect(self._on_show_robot_ghost_requested)
         self.config_widget.hideRobotGhostRequested.connect(self._on_hide_robot_ghost_requested)
         self.config_widget.updateRobotGhostRequested.connect(self._on_update_robot_ghost_requested)
+        self.config_widget.trajectoryPreviewRequested.connect(self._on_trajectory_preview_requested)
+        self.config_widget.trajectoryPreviewFinished.connect(self._on_trajectory_preview_finished)
         self.config_widget.keypoints_changed.connect(self._on_keypoints_changed)
         self.actions_widget.compute_requested.connect(self._on_compute_requested)
         self.actions_widget.play_requested.connect(self._on_play_requested)
@@ -69,12 +72,23 @@ class TrajectoryController(QObject):
     def _on_keypoints_changed(self, _keypoints: list[TrajectoryKeypoint]) -> None:
         self._recompute_trajectory()
 
+    def _on_trajectory_preview_requested(self, keypoints: list[TrajectoryKeypoint]) -> None:
+        self._is_keypoint_preview_active = True
+        self._recompute_trajectory(keypoints)
+
+    def _on_trajectory_preview_finished(self) -> None:
+        self._is_keypoint_preview_active = False
+        self._recompute_trajectory()
+
     def _on_compute_requested(self) -> None:
         self._recompute_trajectory()
 
-    def _recompute_trajectory(self) -> None:
+    def _recompute_trajectory(self, keypoints_override: list[TrajectoryKeypoint] | None = None) -> None:
         self._stop_playback()
-        keypoints = self.config_widget.get_keypoints()
+        if keypoints_override is None:
+            keypoints = self.config_widget.get_keypoints()
+        else:
+            keypoints = [keypoint.clone() for keypoint in keypoints_override]
         if not keypoints:
             self.current_trajectory = TrajectoryResult()
             self.current_samples = []
@@ -146,7 +160,8 @@ class TrajectoryController(QObject):
         if not self.current_samples:
             self.viewer3d_controller.clear_trajectory_path()
             self.viewer3d_controller.set_trajectory_cursor(None)
-            self.viewer3d_controller.hide_robot_ghost()
+            if not self._is_keypoint_preview_active:
+                self.viewer3d_controller.hide_robot_ghost()
             return
 
         points_xyz = [[sample.pose[0], sample.pose[1], sample.pose[2]] for sample in self.current_samples]
@@ -165,7 +180,8 @@ class TrajectoryController(QObject):
         self.actions_widget.set_time_range(0.0, 0.0)
         self.viewer3d_controller.clear_trajectory_path()
         self.viewer3d_controller.set_trajectory_cursor(None)
-        self.viewer3d_controller.hide_robot_ghost()
+        if not self._is_keypoint_preview_active:
+            self.viewer3d_controller.hide_robot_ghost()
 
     def _on_time_value_changed(self, time_s: float) -> None:
         self._apply_time_value(time_s, force_real_robot=True)
@@ -182,7 +198,8 @@ class TrajectoryController(QObject):
         sample = self._sample_at_time(time_s)
         if sample is None:
             self.viewer3d_controller.set_trajectory_cursor(None)
-            self.viewer3d_controller.hide_robot_ghost()
+            if not self._is_keypoint_preview_active:
+                self.viewer3d_controller.hide_robot_ghost()
             return
 
         self.viewer3d_controller.set_trajectory_cursor([sample.pose[0], sample.pose[1], sample.pose[2]])
@@ -190,11 +207,12 @@ class TrajectoryController(QObject):
             if force_real_robot:
                 self.viewer3d_controller.hide_robot_ghost()
                 self.robot_model.set_joints(sample.joints)
-            else:
+            elif not self._is_keypoint_preview_active:
                 self.viewer3d_controller.show_robot_ghost()
                 self.viewer3d_controller.update_robot_ghost(sample.joints)
         else:
-            self.viewer3d_controller.hide_robot_ghost()
+            if not self._is_keypoint_preview_active:
+                self.viewer3d_controller.hide_robot_ghost()
 
     def _sample_index_at_time(self, time_s: float) -> int:
         if not self.current_sample_times:
