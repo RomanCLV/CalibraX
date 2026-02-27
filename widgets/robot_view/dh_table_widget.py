@@ -37,6 +37,9 @@ class DHTableWidget(QWidget):
 
     axis_config_changed = pyqtSignal(list, list, list, list)
     positions_config_changed = pyqtSignal(list, list, list)
+    position_zero_requested = pyqtSignal()
+    position_transport_requested = pyqtSignal()
+    home_position_requested = pyqtSignal()
 
     robot_cad_models_changed = pyqtSignal(list)
     tool_cad_model_changed = pyqtSignal(str)
@@ -170,6 +173,21 @@ class DHTableWidget(QWidget):
         self.table_positions.horizontalHeader().setDefaultSectionSize(180)
         self.table_positions.itemChanged.connect(self._on_positions_item_changed)
         layout.addWidget(self.table_positions)
+
+        positions_btn_layout = QHBoxLayout()
+        self.btn_go_position_zero = QPushButton("Aller Position 0")
+        self.btn_go_position_zero.clicked.connect(self.position_zero_requested.emit)
+        positions_btn_layout.addWidget(self.btn_go_position_zero)
+
+        self.btn_go_position_transport = QPushButton("Aller Position transport")
+        self.btn_go_position_transport.clicked.connect(self.position_transport_requested.emit)
+        positions_btn_layout.addWidget(self.btn_go_position_transport)
+
+        self.btn_go_home_position = QPushButton("Aller Position home")
+        self.btn_go_home_position.clicked.connect(self.home_position_requested.emit)
+        positions_btn_layout.addWidget(self.btn_go_home_position)
+
+        layout.addLayout(positions_btn_layout)
 
         return tab
 

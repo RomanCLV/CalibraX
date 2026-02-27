@@ -39,6 +39,9 @@ class DHTableController(QObject):
         self.dh_table_widget.tool_changed.connect(self._on_view_tool_changed)
         self.dh_table_widget.axis_config_changed.connect(self._on_view_axis_config_changed)
         self.dh_table_widget.positions_config_changed.connect(self._on_view_positions_config_changed)
+        self.dh_table_widget.position_zero_requested.connect(self._on_view_position_zero_requested)
+        self.dh_table_widget.position_transport_requested.connect(self._on_view_position_transport_requested)
+        self.dh_table_widget.home_position_requested.connect(self._on_view_home_position_requested)
         self.dh_table_widget.robot_cad_models_changed.connect(self._on_view_robot_cad_models_changed)
         self.dh_table_widget.tool_cad_model_changed.connect(self._on_view_tool_cad_model_changed)
         self.dh_table_widget.tool_cad_offset_rz_changed.connect(self._on_view_tool_cad_offset_rz_changed)
@@ -103,6 +106,25 @@ class DHTableController(QObject):
         self.robot_model.set_position_zero(position_zero)
         self.robot_model.set_position_transport(position_transport)
         self.robot_model.set_home_position(home_position)
+
+    def _sync_positions_from_view(self) -> None:
+        self._on_view_positions_config_changed(
+            self.dh_table_widget.get_home_position(),
+            self.dh_table_widget.get_position_zero(),
+            self.dh_table_widget.get_position_transport(),
+        )
+
+    def _on_view_position_zero_requested(self) -> None:
+        self._sync_positions_from_view()
+        self.robot_model.go_to_position_zero()
+
+    def _on_view_position_transport_requested(self) -> None:
+        self._sync_positions_from_view()
+        self.robot_model.go_to_position_transport()
+
+    def _on_view_home_position_requested(self) -> None:
+        self._sync_positions_from_view()
+        self.robot_model.go_to_home_position()
 
     def _on_view_robot_cad_models_changed(self, robot_cad_models: list[str]) -> None:
         self.robot_model.set_robot_cad_models(robot_cad_models)
