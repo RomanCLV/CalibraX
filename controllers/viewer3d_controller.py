@@ -17,6 +17,7 @@ class Viewer3DController(QObject):
         self.robot_model.tcp_pose_changed.connect(self._update_tcp_pose)
         self.robot_model.robot_cad_models_changed.connect(self._on_robot_cad_models_changed)
         self.robot_model.tool_cad_model_changed.connect(self._on_tool_cad_model_changed)
+        self.robot_model.tool_cad_offset_rz_changed.connect(self._on_tool_cad_model_changed)
 
     def _update_tcp_pose(self) -> None:
         self.viewer_3d_widget.update_robot(self.robot_model)

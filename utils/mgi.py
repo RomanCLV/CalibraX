@@ -37,12 +37,12 @@ class MgiConfigKey(Enum):
     BDF = 7 # Back, Down, Flip
 
     @staticmethod
-    def get_mgi_config_key_from(is_front: bool, is_up: bool, is_flipped: bool) -> MgiConfigKey:
+    def get_mgi_config_key_from(is_front: bool, is_up: bool, is_flipped: bool) -> "MgiConfigKey":
         idx = (0 if is_front else 4) + (0 if is_up else 2) + (1 if is_flipped else 0)
         return MgiConfigKey(idx)
 
     @staticmethod
-    def identify_configuration(joints: list[float],  config_identifier: ConfigurationIdentifier) -> MgiConfigKey:
+    def identify_configuration(joints: list[float],  config_identifier: ConfigurationIdentifier) -> "MgiConfigKey":
         """
         Identifie la configuration à partir des valeurs articulaires.
         
@@ -59,7 +59,7 @@ class MgiConfigKey(Enum):
         return MgiConfigKey.get_mgi_config_key_from(is_front, is_up, is_flipped)
 
     @staticmethod
-    def identify_configuration_deg(joints: list[float],  config_identifier: ConfigurationIdentifier) -> MgiConfigKey:
+    def identify_configuration_deg(joints: list[float],  config_identifier: ConfigurationIdentifier) -> "MgiConfigKey":
         """
         Identifie la configuration à partir des valeurs articulaires.
         

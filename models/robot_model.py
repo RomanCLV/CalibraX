@@ -21,6 +21,7 @@ class RobotModel(QObject):
     DEFAULT_AXIS_JERK_LIMITS: List[float] = [6000.0, 5000.0, 5000.0, 7500.0, 6500.0, 9000.0]
     DEFAULT_ROBOT_CAD_MODELS: List[str] = [f"./robot_stl/rocky{i}.stl" for i in range(7)]
     DEFAULT_TOOL_CAD_MODEL: str = ""
+    DEFAULT_TOOL_CAD_OFFSET_RZ: float = 0.0
     DEFAULT_HOME_POSITION: List[float] = [0.0, -90.0, 90.0, 0.0, 90.0, 0.0]
     POSITION_ZERO: List[float] = [0.0, -90.0, 90.0, 0.0, 0.0, 0.0]
     POSITION_TRANSPORT: List[float] = [0.0, -105.0, 156.0, 0.0, 120.0, 0.0]
@@ -43,6 +44,7 @@ class RobotModel(QObject):
     cad_models_changed = pyqtSignal()
     robot_cad_models_changed = pyqtSignal()
     tool_cad_model_changed = pyqtSignal()
+    tool_cad_offset_rz_changed = pyqtSignal()
 
     # Joints et axes
     joints_changed = pyqtSignal()
@@ -81,6 +83,7 @@ class RobotModel(QObject):
         self.axis_jerk_limits: List[float] = list(RobotModel.DEFAULT_AXIS_JERK_LIMITS)
         self.robot_cad_models: List[str] = list(RobotModel.DEFAULT_ROBOT_CAD_MODELS)
         self.tool_cad_model: str = RobotModel.DEFAULT_TOOL_CAD_MODEL
+        self.tool_cad_offset_rz: float = RobotModel.DEFAULT_TOOL_CAD_OFFSET_RZ
                
         # Position home du robot
         self.home_position: List[float] = list(RobotModel.DEFAULT_HOME_POSITION)
@@ -446,6 +449,19 @@ class RobotModel(QObject):
             return
         self.tool_cad_model = normalized
         self.tool_cad_model_changed.emit()
+        self.cad_models_changed.emit()
+
+    def get_tool_cad_offset_rz(self) -> float:
+        """Retourne l'offset visuel Rz (en deg) applique a la CAO tool uniquement."""
+        return float(self.tool_cad_offset_rz)
+
+    def set_tool_cad_offset_rz(self, offset_deg: float) -> None:
+        """Definit l'offset visuel Rz (en deg) applique a la CAO tool uniquement."""
+        normalized = float(offset_deg)
+        if normalized == self.tool_cad_offset_rz:
+            return
+        self.tool_cad_offset_rz = normalized
+        self.tool_cad_offset_rz_changed.emit()
         self.cad_models_changed.emit()
 
     # ============================================================================

@@ -31,6 +31,7 @@ class DHTableController(QObject):
         self.robot_model.axis_reversed_changed.connect(self._on_robot_axis_config_changed)
         self.robot_model.robot_cad_models_changed.connect(self._on_robot_cad_models_changed)
         self.robot_model.tool_cad_model_changed.connect(self._on_robot_cad_models_changed)
+        self.robot_model.tool_cad_offset_rz_changed.connect(self._on_robot_cad_models_changed)
 
         # Signals from View
         self.dh_table_widget.text_changed_requested.connect(self._on_view_name_changed)
@@ -40,6 +41,7 @@ class DHTableController(QObject):
         self.dh_table_widget.positions_config_changed.connect(self._on_view_positions_config_changed)
         self.dh_table_widget.robot_cad_models_changed.connect(self._on_view_robot_cad_models_changed)
         self.dh_table_widget.tool_cad_model_changed.connect(self._on_view_tool_cad_model_changed)
+        self.dh_table_widget.tool_cad_offset_rz_changed.connect(self._on_view_tool_cad_offset_rz_changed)
         self.dh_table_widget.load_config_requested.connect(self._on_view_load_config_requested)
         self.dh_table_widget.export_config_requested.connect(self._on_view_export_config_requested)
 
@@ -107,6 +109,9 @@ class DHTableController(QObject):
 
     def _on_view_tool_cad_model_changed(self, tool_cad_model: str) -> None:
         self.robot_model.set_tool_cad_model(tool_cad_model)
+
+    def _on_view_tool_cad_offset_rz_changed(self, offset_deg: float) -> None:
+        self.robot_model.set_tool_cad_offset_rz(offset_deg)
     
     def _on_view_load_config_requested(self) -> None:
         self.load_configuration()
@@ -142,6 +147,7 @@ class DHTableController(QObject):
     def update_cad_view(self) -> None:
         self.dh_table_widget.set_robot_cad_models(self.robot_model.get_robot_cad_models())
         self.dh_table_widget.set_tool_cad_model(self.robot_model.get_tool_cad_model())
+        self.dh_table_widget.set_tool_cad_offset_rz(self.robot_model.get_tool_cad_offset_rz())
 
     def update_tool_view(self) -> None:
         self.dh_table_widget.set_tool(self.robot_model.get_tool())

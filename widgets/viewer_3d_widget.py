@@ -453,6 +453,11 @@ class Viewer3DWidget(QWidget):
             return ""
         return str(self._robot_model.get_tool_cad_model())
 
+    def _resolve_tool_cad_offset_rz(self) -> float:
+        if self._robot_model is None:
+            return 0.0
+        return float(self._robot_model.get_tool_cad_offset_rz())
+
     @staticmethod
     def _resolve_tool_attachment_matrix_index(matrices) -> int | None:
         # Le dernier repere correspond au TCP (avec tool). La CAO tool doit
@@ -464,6 +469,24 @@ class Viewer3DWidget(QWidget):
     @staticmethod
     def _resolve_tool_link_color() -> tuple[float, float, float, float]:
         return (0.70, 0.70, 0.70, 0.5)
+
+    @staticmethod
+    def _apply_tool_visual_offset(transform_matrix: np.ndarray, offset_rz_deg: float) -> np.ndarray:
+        if abs(offset_rz_deg) < 1e-12:
+            return transform_matrix
+
+        theta = np.radians(offset_rz_deg)
+        rot_z = np.array(
+            [
+                [np.cos(theta), -np.sin(theta), 0.0, 0.0],
+                [np.sin(theta), np.cos(theta), 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
+            dtype=float,
+        )
+        # Rotation locale autour de l'axe Z du repere outil.
+        return transform_matrix @ rot_z
 
     @staticmethod
     def _resolve_link_color(matrix_index: int) -> tuple[float, float, float, float]:
@@ -505,8 +528,11 @@ class Viewer3DWidget(QWidget):
         self.clear_robot_ghost_links()
 
         ghost_color = (0.2, 0.75, 1.0, 0.22)
+        tool_offset_rz = self._resolve_tool_cad_offset_rz()
         for matrix_index, stl_path, link_color, is_tool in self._build_cad_specs(matrices):
             T = matrices[matrix_index]
+            if is_tool:
+                T = self._apply_tool_visual_offset(T, tool_offset_rz)
             mesh_item = self.load_robot_mesh(stl_path, T, link_color)
             if mesh_item:
                 self.robot_links.append(mesh_item)
@@ -548,7 +574,9 @@ class Viewer3DWidget(QWidget):
             return
 
         color = (0.2, 0.75, 1.0, 0.22) if ghost else self._resolve_tool_link_color()
-        mesh_item = self.load_robot_mesh(stl_path, matrices[matrix_index], color)
+        base_transform = matrices[matrix_index]
+        visual_transform = self._apply_tool_visual_offset(base_transform, self._resolve_tool_cad_offset_rz())
+        mesh_item = self.load_robot_mesh(stl_path, visual_transform, color)
         if mesh_item is None:
             return
 
@@ -617,10 +645,13 @@ class Viewer3DWidget(QWidget):
         self._render_trajectory_overlay()
 
     def update_robot_poses(self, matrices):
-        for mesh_item, matrix_index in zip(self.robot_links, self._robot_link_matrix_indices):
+        tool_offset_rz = self._resolve_tool_cad_offset_rz()
+        for mesh_item, matrix_index, role in zip(self.robot_links, self._robot_link_matrix_indices, self._robot_link_roles):
             if matrix_index >= len(matrices):
                 continue
             T = matrices[matrix_index]
+            if role == "tool":
+                T = self._apply_tool_visual_offset(T, tool_offset_rz)
             if mesh_item:
                 mesh_item.resetTransform()
                 qmat = QtGui.QMatrix4x4(
@@ -729,10 +760,13 @@ class Viewer3DWidget(QWidget):
     def _update_robot_ghost_poses(self, matrices):
         self._ensure_robot_ghost_links(matrices)
 
-        for mesh_item, matrix_index in zip(self.robot_ghost_links, self._robot_ghost_link_matrix_indices):
+        tool_offset_rz = self._resolve_tool_cad_offset_rz()
+        for mesh_item, matrix_index, role in zip(self.robot_ghost_links, self._robot_ghost_link_matrix_indices, self._robot_ghost_link_roles):
             if matrix_index >= len(matrices):
                 continue
             T = matrices[matrix_index]
+            if role == "tool":
+                T = self._apply_tool_visual_offset(T, tool_offset_rz)
             if mesh_item:
                 mesh_item.resetTransform()
                 qmat = QtGui.QMatrix4x4(

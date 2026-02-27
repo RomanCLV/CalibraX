@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QDoubleSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -39,6 +40,7 @@ class DHTableWidget(QWidget):
 
     robot_cad_models_changed = pyqtSignal(list)
     tool_cad_model_changed = pyqtSignal(str)
+    tool_cad_offset_rz_changed = pyqtSignal(float)
 
     COL_AXIS_MIN = 0
     COL_AXIS_MAX = 1
@@ -58,6 +60,7 @@ class DHTableWidget(QWidget):
         self.axis_reversed_checkboxes: list[QCheckBox] = []
         self.robot_cad_line_edits: list[QLineEdit] = []
         self.tool_cad_line_edit: QLineEdit | None = None
+        self.tool_cad_offset_rz_spin: QDoubleSpinBox | None = None
         self.setup_ui()
 
     def setup_ui(self) -> None:
@@ -215,6 +218,17 @@ class DHTableWidget(QWidget):
         grid.addWidget(self.tool_cad_line_edit, tool_row, 1)
         grid.addWidget(tool_browse_button, tool_row, 2)
         grid.addWidget(tool_clear_button, tool_row, 3)
+
+        offset_row = tool_row + 1
+        offset_label = QLabel("Offset Rz tool (deg)")
+        self.tool_cad_offset_rz_spin = QDoubleSpinBox()
+        self.tool_cad_offset_rz_spin.setRange(-360.0, 360.0)
+        self.tool_cad_offset_rz_spin.setDecimals(2)
+        self.tool_cad_offset_rz_spin.setSingleStep(1.0)
+        self.tool_cad_offset_rz_spin.valueChanged.connect(self.tool_cad_offset_rz_changed.emit)
+
+        grid.addWidget(offset_label, offset_row, 0)
+        grid.addWidget(self.tool_cad_offset_rz_spin, offset_row, 1)
 
         layout.addLayout(grid)
         layout.addStretch()
@@ -447,6 +461,18 @@ class DHTableWidget(QWidget):
         if self.tool_cad_line_edit is None:
             return ""
         return self.tool_cad_line_edit.text().strip()
+
+    def set_tool_cad_offset_rz(self, offset_deg: float) -> None:
+        if self.tool_cad_offset_rz_spin is None:
+            return
+        self.tool_cad_offset_rz_spin.blockSignals(True)
+        self.tool_cad_offset_rz_spin.setValue(float(offset_deg))
+        self.tool_cad_offset_rz_spin.blockSignals(False)
+
+    def get_tool_cad_offset_rz(self) -> float:
+        if self.tool_cad_offset_rz_spin is None:
+            return 0.0
+        return float(self.tool_cad_offset_rz_spin.value())
 
     def set_tool(self, tool: RobotTool) -> None:
         self.tool_widget.set_tool(tool)
