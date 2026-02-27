@@ -246,10 +246,10 @@ class TrajectoryConfigWidget(QWidget):
         self._active_dialog_row = None
         self._set_editing_active(False)
         self.editingSessionFinished.emit()
+        self.hideRobotGhostRequested.emit()
         if accepted and new_selection_row is not None and 0 <= new_selection_row < self.keypoints_table.rowCount():
             self.keypoints_table.selectRow(new_selection_row)
         self.trajectoryPreviewFinished.emit()
-        self.hideRobotGhostRequested.emit()
         self._emit_selection_changed()
 
     def _on_delete_clicked(self) -> None:

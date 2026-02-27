@@ -80,6 +80,10 @@ class TrajectoryController(QObject):
         self.viewer3d_controller.update_robot_ghost(joints)
 
     def _on_keypoints_changed(self, _keypoints: list[TrajectoryKeypoint]) -> None:
+        # During live dialog preview, the final recompute is triggered by
+        # trajectoryPreviewFinished to avoid duplicate recomputations.
+        if self._is_keypoint_preview_active:
+            return
         self._recompute_trajectory()
 
     def _on_keypoint_selection_changed(self, row: object) -> None:
@@ -101,6 +105,8 @@ class TrajectoryController(QObject):
         self._recompute_trajectory(keypoints)
 
     def _on_trajectory_preview_finished(self) -> None:
+        if not self._is_keypoint_preview_active:
+            return
         self._is_keypoint_preview_active = False
         self._recompute_trajectory()
 
@@ -317,8 +323,8 @@ class TrajectoryController(QObject):
                 self.viewer3d_controller.hide_robot_ghost()
                 self.robot_model.set_joints(sample.joints)
             elif not self._is_keypoint_preview_active:
-                self.viewer3d_controller.show_robot_ghost()
-                self.viewer3d_controller.update_robot_ghost(sample.joints)
+                # Simulation timeline should not spawn the ghost outside edition mode.
+                self.viewer3d_controller.hide_robot_ghost()
         else:
             if not self._is_keypoint_preview_active:
                 self.viewer3d_controller.hide_robot_ghost()

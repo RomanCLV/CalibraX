@@ -44,9 +44,6 @@ class Viewer3DController(QObject):
     def clear_trajectory_path(self) -> None:
         self.viewer_3d_widget.clear_trajectory_path()
 
-    def set_trajectory_cursor(self, point_xyz: list[float] | None) -> None:
-        self.viewer_3d_widget.set_trajectory_cursor(point_xyz)
-
     def set_trajectory_keypoints(
         self,
         points_xyz: list[list[float]],
