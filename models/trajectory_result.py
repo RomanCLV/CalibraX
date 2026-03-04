@@ -1,6 +1,6 @@
 from enum import Enum
 
-from models.trajectory_keypoint import TrajectoryKeypoint
+from models.trajectory_keypoint import KeypointMotionMode, TrajectoryKeypoint
 from utils.mgi import MgiConfigKey
 
 
@@ -76,6 +76,8 @@ class SegmentResult:
     def __init__(self) -> None:
         self.status = TrajectoryComputationStatus.SUCCESS
         self.samples: list[TrajectorySample] = []
+        self.mode = KeypointMotionMode.PTP
+        self.in_direction = [0.0, 0.0, 0.0]
         self.out_direction = [0.0, 0.0, 0.0]
         self.duration = 0.0
         self.last_time = 0.0

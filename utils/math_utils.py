@@ -41,6 +41,15 @@ def normalize3(v: list[float] | tuple[float, float, float], epsilon: float = 1e-
         return [0.0, 0.0, 0.0]
     return [float(v[0]) / n, float(v[1]) / n, float(v[2]) / n]
 
+def is_near_zero_vector_xyz(vector_xyz: list[float], epsilon: float = 1e-9) -> bool:
+    if len(vector_xyz) < 3:
+        return False
+    return (
+        abs(float(vector_xyz[0])) <= epsilon
+        and abs(float(vector_xyz[1])) <= epsilon
+        and abs(float(vector_xyz[2])) <= epsilon
+    )
+
 # ============================================================================
 # RÉGION: Transformations Denavit-Hartenberg
 # ============================================================================

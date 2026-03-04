@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
 
 from models.trajectory_keypoint import KeypointMotionMode, KeypointTargetType, TrajectoryKeypoint
 from models.robot_model import RobotModel
+from models.trajectory_result import TrajectoryResult
 from widgets.trajectory_view.trajectory_keypoint_dialog import TrajectoryKeypointDialog
 
 
@@ -61,6 +62,7 @@ class TrajectoryConfigWidget(QWidget):
         self._active_dialog_mode: str | None = None
         self._active_dialog_row: int | None = None
         self._is_editing_active = False
+        self._trajectory_context: TrajectoryResult | None = None
 
         self._setup_ui()
         self._setup_connections()
@@ -196,8 +198,8 @@ class TrajectoryConfigWidget(QWidget):
         dialog.updateRobotGhostRequested.connect(self.updateRobotGhostRequested.emit)
         dialog.previewKeypointChanged.connect(self._on_active_dialog_preview_keypoint_changed)
         dialog.finished.connect(self._on_active_dialog_finished)
+        dialog.set_keypoint_context(self.get_keypoints(), preview_index, self._trajectory_context)
         dialog.load_keypoint(keypoint)
-        # TODO : donner la direction de trajectoire du dernier segment lorsqu'on l'aura
         dialog.show()
         dialog.raise_()
         dialog.activateWindow()
@@ -381,6 +383,9 @@ class TrajectoryConfigWidget(QWidget):
         self._keypoints = [keypoint.clone() for keypoint in keypoints]
         self._refresh_table()
         self._emit_selection_changed()
+
+    def set_trajectory_context(self, trajectory_result: TrajectoryResult | None) -> None:
+        self._trajectory_context = trajectory_result
 
     def get_keypoints(self) -> list[TrajectoryKeypoint]:
         return [keypoint.clone() for keypoint in self._keypoints]

@@ -41,9 +41,13 @@ class TrajectoryBuilder:
         return float(speed_mps) * 1000.0
 
     @staticmethod
-    def _new_empty_segment(last_time_s: float) -> SegmentResult:
+    def _new_empty_segment(
+        last_time_s: float,
+        mode: KeypointMotionMode,
+    ) -> SegmentResult:
         segment = SegmentResult()
         segment.last_time = float(last_time_s)
+        segment.mode = mode
         return segment
 
     @staticmethod
@@ -132,7 +136,7 @@ class TrajectoryBuilder:
         return [float(v) for v in dh_pose[:6]]
 
     @staticmethod
-    def _linear_tangents_from_points(p0, p3, tangent_ratio: float = 0.2):
+    def _linear_tangents_from_points(p0, p3, tangent_ratio: float = 0.3):
         dx = (p3[0] - p0[0]) * tangent_ratio
         dy = (p3[1] - p0[1]) * tangent_ratio
         dz = (p3[2] - p0[2]) * tangent_ratio
@@ -331,7 +335,7 @@ class TrajectoryBuilder:
         self._robot_allowed_configs = set(self.robot_model.get_allowed_configurations())
         self._joint_weights = [float(v) for v in self.robot_model.get_joint_weights()[:6]]
         try:
-            previous_sample_1: TrajectorySample | None = None
+            previous_sample: TrajectorySample | None = None
             start_time_s = 0.0
 
             first_result = self.compute_first_segment(current_joints, segments[0].from_keypoint, start_time_s)
@@ -340,17 +344,17 @@ class TrajectoryBuilder:
             if self._should_stop_on_error(first_result.status):
                 return trajectory
 
-            previous_sample_1 = TrajectoryBuilder._extract_previous_sample(first_result)
+            previous_sample = TrajectoryBuilder._extract_previous_sample(first_result)
             start_time_s = first_result.last_time
 
             for idx, segment in enumerate(segments, start=1):
-                segment_result = self.compute_segment(segment, previous_sample_1, start_time_s)
+                segment_result = self.compute_segment(segment, previous_sample, start_time_s)
                 trajectory.segments.append(segment_result)
                 TrajectoryBuilder._accumulate_status(trajectory, segment_result, segment_index=idx)
                 if self._should_stop_on_error(segment_result.status):
                     break
 
-                previous_sample_1 = TrajectoryBuilder._extract_previous_sample(segment_result)
+                previous_sample = TrajectoryBuilder._extract_previous_sample(segment_result)
                 start_time_s = segment_result.last_time
             return trajectory
         finally:
@@ -444,13 +448,13 @@ class TrajectoryBuilder:
         from_pose = self._resolve_keypoint_pose(segment.from_keypoint)
         to_pose = self._resolve_keypoint_pose(segment.to_keypoint)
         if from_pose is None or to_pose is None:
-            result = TrajectoryBuilder._new_empty_segment(start_time_s)
+            result = TrajectoryBuilder._new_empty_segment(start_time_s, segment.to_keypoint.mode)
             result.status = TrajectoryComputationStatus.POINT_UNREACHABLE
             return result
 
         effective_allowed_configs = self._resolve_effective_allowed_configs(segment)
         if not effective_allowed_configs:
-            result = TrajectoryBuilder._new_empty_segment(start_time_s)
+            result = TrajectoryBuilder._new_empty_segment(start_time_s, segment.to_keypoint.mode)
             result.status = TrajectoryComputationStatus.POINT_UNREACHABLE
             return result
 
@@ -459,7 +463,7 @@ class TrajectoryBuilder:
         segment_length_mm = math_utils.norm3(p3[0] - p0[0], p3[1] - p0[1], p3[2] - p0[2])
 
         if force_linear_handles:
-            t_out, t_in = self._linear_tangents_from_points(p0, p3)
+            t_out, t_in = self._linear_tangents_from_points(p0, p3, 0.3) # 30% of the segment length as handle length
         else:
             # Cubic handles are carried by the destination keypoint (segment-in semantics):
             # [0] = start-side direction/amplitude, [1] = end-side direction/amplitude.
@@ -472,9 +476,12 @@ class TrajectoryBuilder:
 
         result = SegmentResult()
         result.status = TrajectoryComputationStatus.SUCCESS
+        result.mode = segment.to_keypoint.mode
         result.duration = intervals * self.sample_dt_s
         result.last_time = start_time_s + result.duration
-        result.out_direction = math_utils.normalize3(coeffs.first_derivative(1.0), self._EPS)
+        
+        result.in_direction = t_in
+        result.out_direction = t_out
 
         dA = TrajectoryBuilder._shortest_angle_delta_deg(from_pose[3], to_pose[3])
         dB = TrajectoryBuilder._shortest_angle_delta_deg(from_pose[4], to_pose[4])

@@ -123,6 +123,7 @@ class TrajectoryController(QObject):
         self._displayed_keypoints = [keypoint.clone() for keypoint in keypoints]
         if not keypoints:
             self.current_trajectory = TrajectoryResult()
+            self.config_widget.set_trajectory_context(self.current_trajectory)
             self.current_samples = []
             self.current_sample_times = []
             self._reset_trajectory_visuals()
@@ -140,6 +141,7 @@ class TrajectoryController(QObject):
             segments = self._build_segments(keypoints)
             self.current_trajectory = self.trajectory_builder.compute_trajectory(current_joints, segments)
 
+        self.config_widget.set_trajectory_context(self.current_trajectory)
         self.current_samples = self._flatten_samples(self.current_trajectory)
         self.current_sample_times = [sample.time for sample in self.current_samples]
         self._update_graphs()
