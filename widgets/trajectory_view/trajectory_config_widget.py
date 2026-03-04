@@ -275,13 +275,23 @@ class TrajectoryConfigWidget(QWidget):
         dialog.activateWindow()
 
     def _on_add_clicked(self) -> None:
+        if self._keypoints:
+            last_keypoint = self._keypoints[-1]
+            initial_keypoint = TrajectoryKeypoint(
+                target_type=last_keypoint.target_type,
+                cartesian_target=list(last_keypoint.cartesian_target),
+                joint_target=list(last_keypoint.joint_target),
+            )
+        else:
+            initial_keypoint = TrajectoryKeypoint(
+                cartesian_target=list(self.robot_model.get_tcp_pose()),
+                joint_target=list(self.robot_model.get_joints()),
+            )
+
         self._open_keypoint_dialog(
             "add",
             None,
-            TrajectoryKeypoint(
-                cartesian_target=list(self.robot_model.get_tcp_pose()),
-                joint_target=list(self.robot_model.get_joints()),
-            ),
+            initial_keypoint,
         )
 
     def _on_edit_clicked(self) -> None:
