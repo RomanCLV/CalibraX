@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QStackedWidget,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -33,7 +34,7 @@ from widgets.joint_control_view.joints_control_widget import JointsControlWidget
 
 class TrajectoryKeypointDialog(QDialog):
     """Dialog to edit a single trajectory keypoint."""
-    updateRobotGhostRequested = pyqtSignal(list)
+    updateRobotGhostRequested = pyqtSignal(object)
     previewKeypointChanged = pyqtSignal(object)
 
     CONFIG_ORDER = [
@@ -50,7 +51,7 @@ class TrajectoryKeypointDialog(QDialog):
     def __init__(self, robot_model: RobotModel, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Point clé")
-        self._dialog_min_width = 480
+        self._dialog_min_width = 420
         self.setMinimumWidth(self._dialog_min_width)
         self.robot_model = robot_model
 
@@ -58,9 +59,13 @@ class TrajectoryKeypointDialog(QDialog):
         self.use_current_target_btn = QPushButton("Valeurs courantes")
         self.use_home_target_btn = QPushButton("Position home")
         self.target_stack = QStackedWidget()
+        self.main_tabs = QTabWidget()
+        self.target_tab = QWidget()
+        self.cubic_tab = QWidget()
+        self.config_tab = QWidget()
 
-        self.cartesian_target_widget = CartesianControlWidget()
-        self.joint_target_widget = JointsControlWidget()
+        self.cartesian_target_widget = CartesianControlWidget(compact=True)
+        self.joint_target_widget = JointsControlWidget(compact=True)
         self.cartesian_error_label = QLabel("")
 
         self.mode_combo = QComboBox()
@@ -70,6 +75,7 @@ class TrajectoryKeypointDialog(QDialog):
         self._ptp_speed_percent = 75.0
         self._linear_speed_mps = 0.5
         self._last_mode = KeypointMotionMode.PTP
+        self._last_target_type = KeypointTargetType.CARTESIAN
         self._suspend_preview_emission = False
 
         self.cubic_group = QGroupBox("Vecteurs du segment cubique (entrant)")
@@ -120,30 +126,36 @@ class TrajectoryKeypointDialog(QDialog):
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
+        layout.setSizeConstraint(QLayout.SizeConstraint.SetDefaultConstraint)
 
-        target_mode_group = QGroupBox("Type de target")
-        target_mode_layout = QHBoxLayout()
+        top_controls_layout = QHBoxLayout()
         self.target_type_combo.addItem("Cartesienne (X Y Z A B C)", KeypointTargetType.CARTESIAN.value)
         self.target_type_combo.addItem("Articulaire (J1 J2 J3 J4 J5 J6)", KeypointTargetType.JOINT.value)
-        target_mode_layout.addWidget(self.target_type_combo)
-        target_mode_layout.addWidget(self.use_current_target_btn)
-        target_mode_layout.addWidget(self.use_home_target_btn)
-        target_mode_group.setLayout(target_mode_layout)
-        layout.addWidget(target_mode_group)
+        self.mode_combo.addItems([KeypointMotionMode.PTP.value, KeypointMotionMode.LINEAR.value, KeypointMotionMode.CUBIC.value])
+        top_controls_layout.addWidget(QLabel("Type de target"))
+        top_controls_layout.addWidget(self.target_type_combo)
+        top_controls_layout.addSpacing(10)
+        top_controls_layout.addWidget(QLabel("Mode"))
+        top_controls_layout.addWidget(self.mode_combo)
+        top_controls_layout.addSpacing(10)
+        top_controls_layout.addWidget(QLabel("Vitesse"))
+        top_controls_layout.addWidget(self.speed_spin)
+        top_controls_layout.addWidget(self.speed_unit_label)
+        top_controls_layout.addStretch()
+        layout.addLayout(top_controls_layout)
 
         self.target_stack.addWidget(self._build_cartesian_target_group())
         self.target_stack.addWidget(self._build_joint_target_group())
-        layout.addWidget(self.target_stack)
 
-        motion_group = QGroupBox("Type de mouvement")
-        motion_layout = QHBoxLayout()
-        self.mode_combo.addItems([KeypointMotionMode.PTP.value, KeypointMotionMode.LINEAR.value, KeypointMotionMode.CUBIC.value])
-        motion_layout.addWidget(QLabel("Mode"))
-        motion_layout.addWidget(self.mode_combo)
-        motion_layout.addStretch()
-        motion_group.setLayout(motion_layout)
-        layout.addWidget(motion_group)
+        target_tab_layout = QVBoxLayout(self.target_tab)
+        target_actions_layout = QHBoxLayout()
+        target_actions_layout.addWidget(self.use_current_target_btn)
+        target_actions_layout.addWidget(self.use_home_target_btn)
+        target_actions_layout.addStretch()
+        target_tab_layout.addLayout(target_actions_layout)
+        target_tab_layout.addWidget(self.target_stack)
+
+        cubic_tab_layout = QVBoxLayout(self.cubic_tab)
 
         cubic_layout = QGridLayout()
         cubic_layout.addWidget(QLabel("Direction debut segment"), 0, 0)
@@ -181,12 +193,12 @@ class TrajectoryKeypointDialog(QDialog):
         self.cubic_hint_label.setStyleSheet("color: #b0b0b0;")
         cubic_group_layout.addWidget(self.cubic_hint_label)
         self.cubic_group.setLayout(cubic_group_layout)
-        layout.addWidget(self.cubic_group)
 
         self.cubic_auto_update_adjacent_checkbox.setToolTip(
             "En edition, ajuste automatiquement les tangentes des segments cubiques precedent/suivant."
         )
-        layout.addWidget(self.cubic_auto_update_adjacent_checkbox)
+        cubic_tab_layout.addWidget(self.cubic_group)
+        cubic_tab_layout.addStretch()
 
         config_group = QGroupBox("Configurations")
         config_layout = QVBoxLayout()
@@ -213,15 +225,15 @@ class TrajectoryKeypointDialog(QDialog):
         self.config_hint_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         config_layout.addWidget(self.config_hint_label)
         config_group.setLayout(config_layout)
-        layout.addWidget(config_group)
 
-        speed_group = QGroupBox("Vitesse")
-        speed_layout = QHBoxLayout()
-        speed_layout.addWidget(self.speed_unit_label)
-        speed_layout.addWidget(self.speed_spin)
-        speed_layout.addStretch()
-        speed_group.setLayout(speed_layout)
-        layout.addWidget(speed_group)
+        config_tab_layout = QVBoxLayout(self.config_tab)
+        config_tab_layout.addWidget(config_group)
+
+        self.main_tabs.addTab(self.target_tab, "Target")
+        self.main_tabs.addTab(self.cubic_tab, "Cubique")
+        self.main_tabs.addTab(self.config_tab, "Configs")
+        layout.addWidget(self.main_tabs)
+        layout.addWidget(self.cubic_auto_update_adjacent_checkbox)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
@@ -301,11 +313,7 @@ class TrajectoryKeypointDialog(QDialog):
         self.joint_target_widget.set_all_joints(home_joints)
         self._emit_ghost_update()
 
-    def _compute_ghost_joint_values(self) -> list[float]:
-        if self._current_target_type() == KeypointTargetType.JOINT:
-            self._set_cartesian_error("")
-            return self.joint_target_widget.get_all_joints()
-
+    def _compute_joint_values_from_cartesian_target(self) -> list[float]:
         target = self.cartesian_target_widget.get_cartesian_values()
         mgi_result = self.robot_model.compute_ik_target(target)
         valid_solutions = mgi_result.get_valid_solutions()
@@ -329,6 +337,20 @@ class TrajectoryKeypointDialog(QDialog):
         self._set_cartesian_error("Aucune solution exploitable pour la target cartesienne.")
         return []
 
+    def _sync_joint_target_from_cartesian_target(self) -> None:
+        joints = self._compute_joint_values_from_cartesian_target()
+        if len(joints) >= 6:
+            self.joint_target_widget.set_all_joints(joints)
+
+    def _sync_cartesian_target_from_joint_target(self) -> None:
+        fk_result = self.robot_model.compute_fk_joints(self.joint_target_widget.get_all_joints())
+        if fk_result is None:
+            return
+        _, _, pose, _, _ = fk_result
+        if len(pose) >= 6:
+            self.cartesian_target_widget.set_all_cartesian([float(v) for v in pose[:6]])
+            self._set_cartesian_error("")
+
     def _emit_live_preview(self) -> None:
         if self._suspend_preview_emission:
             return
@@ -336,8 +358,30 @@ class TrajectoryKeypointDialog(QDialog):
 
     def _emit_ghost_update(self) -> None:
         self._emit_live_preview()
-        joints = self._compute_ghost_joint_values()
-        self.updateRobotGhostRequested.emit(joints)
+        payload = self._build_ghost_payload_and_sync_targets()
+        self.updateRobotGhostRequested.emit(payload)
+
+    def _build_ghost_payload_and_sync_targets(self) -> dict:
+        if self._current_target_type() == KeypointTargetType.CARTESIAN:
+            joints = self._compute_joint_values_from_cartesian_target()
+            if len(joints) >= 6:
+                self.joint_target_widget.set_all_joints(joints)
+            return {"joints": joints}
+
+        joints = [float(v) for v in self.joint_target_widget.get_all_joints()[:6]]
+        payload: dict = {"joints": joints}
+        if len(joints) < 6:
+            return payload
+
+        fk_result = self.robot_model.compute_fk_joints(joints)
+        if fk_result is None:
+            return payload
+        _, corrected_matrices, pose, _, _ = fk_result
+        if len(pose) >= 6:
+            self.cartesian_target_widget.set_all_cartesian([float(v) for v in pose[:6]])
+            self._set_cartesian_error("")
+        payload["corrected_matrices"] = corrected_matrices
+        return payload
 
     def _set_cartesian_error(self, message: str) -> None:
         self.cartesian_error_label.setText(message)
@@ -564,6 +608,13 @@ class TrajectoryKeypointDialog(QDialog):
         self._emit_ghost_update()
 
     def _on_target_type_changed(self, _idx: int) -> None:
+        previous_type = self._last_target_type
+        new_type = self._current_target_type()
+        if previous_type != new_type:
+            if previous_type == KeypointTargetType.CARTESIAN and new_type == KeypointTargetType.JOINT:
+                self._sync_joint_target_from_cartesian_target()
+            elif previous_type == KeypointTargetType.JOINT and new_type == KeypointTargetType.CARTESIAN:
+                self._sync_cartesian_target_from_joint_target()
         self._update_target_editors()
         self._try_minimize_window_size()
         self._emit_ghost_update()
@@ -624,7 +675,6 @@ class TrajectoryKeypointDialog(QDialog):
             cb.blockSignals(True)
             cb.setChecked(key == deduced)
             cb.blockSignals(False)
-        self._emit_ghost_update()
 
     def _update_target_editors(self) -> None:
         is_joint = self._current_target_type() == KeypointTargetType.JOINT
@@ -641,9 +691,19 @@ class TrajectoryKeypointDialog(QDialog):
         if is_joint:
             self._set_cartesian_error("")
             self._sync_joint_mode_configs()
+        self._last_target_type = KeypointTargetType.JOINT if is_joint else KeypointTargetType.CARTESIAN
 
     def _update_cubic_visibility(self) -> None:
-        self.cubic_group.setVisible(self._current_mode() == KeypointMotionMode.CUBIC)
+        is_cubic = self._current_mode() == KeypointMotionMode.CUBIC
+        cubic_tab_index = self.main_tabs.indexOf(self.cubic_tab)
+        if cubic_tab_index >= 0:
+            self.main_tabs.setTabEnabled(cubic_tab_index, is_cubic)
+            if hasattr(self.main_tabs, "setTabVisible"):
+                self.main_tabs.setTabVisible(cubic_tab_index, is_cubic)
+            if is_cubic:
+                self.main_tabs.setCurrentWidget(self.cubic_tab)
+            elif self.main_tabs.currentIndex() == cubic_tab_index:
+                self.main_tabs.setCurrentWidget(self.target_tab)
         self._update_auto_tangent_buttons_state()
 
     def _update_speed_editor(self) -> None:

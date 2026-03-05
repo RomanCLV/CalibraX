@@ -46,7 +46,7 @@ class CartesianControlWidget(QWidget):
         }
     }
     
-    def __init__(self, parent: QWidget = None):
+    def __init__(self, parent: QWidget = None, compact: bool = False):
         super().__init__(parent)
         
         # ========================================================================
@@ -70,6 +70,7 @@ class CartesianControlWidget(QWidget):
         self.spinboxes_cart: List[QDoubleSpinBox] = []
         self.labels_cart: List[QLabel] = []
         self.current_convention = "Kuka"
+        self._compact = bool(compact)
         
         # ========================================================================
         # RÉGION: Initialisation UI
@@ -80,32 +81,34 @@ class CartesianControlWidget(QWidget):
     def setup_ui(self) -> None:
         """Initialise l'interface du widget"""
         layout = QVBoxLayout(self)
+        if self._compact:
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(4)
         
         # ========================================================================
         # RÉGION: En-tête
         # ========================================================================
-        titre = QLabel("Coordonnées cartésiennes")
-        titre.setStyleSheet("font-size: 14px; font-weight: bold;")
-        layout.addWidget(titre)
+        if not self._compact:
+            titre = QLabel("Coordonnées cartésiennes")
+            titre.setStyleSheet("font-size: 14px; font-weight: bold;")
+            layout.addWidget(titre)
         
         # Convention constructeur
-        convention_layout = QHBoxLayout()
-        convention_label = QLabel("Convention:")
         self.convention_combo = QComboBox()
         self.convention_combo.addItems(list(self.CONVENTIONS.keys()))
         self.convention_combo.setCurrentText(self.current_convention)
         self.convention_combo.currentTextChanged.connect(self._on_convention_changed)
         self.convention_combo.setEnabled(False)
-        
-        convention_layout.addWidget(convention_label)
-        convention_layout.addWidget(self.convention_combo)
-        convention_layout.addStretch()
-        layout.addLayout(convention_layout)
-        
-        # Description de la convention
         self.convention_description = QLabel(self.CONVENTIONS[self.current_convention]["description"])
         self.convention_description.setStyleSheet("font-size: 10px; font-style: italic; color: gray;")
-        layout.addWidget(self.convention_description)
+        if not self._compact:
+            convention_layout = QHBoxLayout()
+            convention_label = QLabel("Convention:")
+            convention_layout.addWidget(convention_label)
+            convention_layout.addWidget(self.convention_combo)
+            convention_layout.addStretch()
+            layout.addLayout(convention_layout)
+            layout.addWidget(self.convention_description)
         
         # ========================================================================
         # RÉGION: Sliders et spinboxes pour les 6 coordonnées cartésiennes
@@ -118,7 +121,7 @@ class CartesianControlWidget(QWidget):
             # Label
             label_text = self.CONVENTIONS[self.current_convention]["labels"][i]
             label = QLabel(label_text)
-            label.setMinimumWidth(80)
+            label.setMinimumWidth(62 if self._compact else 80)
             self.labels_cart.append(label)
             
             # Déterminer les limites

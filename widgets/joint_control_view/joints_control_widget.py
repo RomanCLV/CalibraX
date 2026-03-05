@@ -16,13 +16,14 @@ class JointsControlWidget(QWidget):
     position_zero_requested = pyqtSignal()
     position_transport_requested = pyqtSignal()
     
-    def __init__(self, parent: QWidget = None) -> None:
+    def __init__(self, parent: QWidget = None, compact: bool = False) -> None:
         super().__init__(parent)
         
         # Données internes
         self._joint_values: List[float] = [0.0] * 6  # Valeurs réelles (précision complète)
         self._axis_limits: List[tuple[float, float]] = [(-180.0, 180.0) for _ in range(6)]
         self._current_axis_config: MgiConfigKey = MgiConfigKey.FUN
+        self._compact = bool(compact)
         
         # UI
         self.configuration_label = QLabel("Configuration courante : ")
@@ -37,20 +38,26 @@ class JointsControlWidget(QWidget):
     def setup_ui(self) -> None:
         """Initialise l'interface du widget"""
         layout = QVBoxLayout(self)
+        if self._compact:
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(4)
         
         # Titre
-        titre = QLabel("Coordonnées articulaires")
-        titre.setStyleSheet("font-size: 14px; font-weight: bold;")
-        layout.addWidget(titre)
+        if not self._compact:
+            titre = QLabel("Coordonnées articulaires")
+            titre.setStyleSheet("font-size: 14px; font-weight: bold;")
+            layout.addWidget(titre)
 
         # Config
-        layout.addWidget(self.configuration_label)
+        if not self._compact:
+            layout.addWidget(self.configuration_label)
         self.set_configuration(self._current_axis_config)
         
         # Sliders et spinboxes pour les 6 joints
         for i in range(6):
             row_layout = QHBoxLayout()
             label = QLabel(f"q{i+1} (°)")
+            label.setMinimumWidth(58 if self._compact else 72)
 
             # Slider (0-100 représente min-max)
             slider = QSlider(Qt.Orientation.Horizontal)
@@ -93,7 +100,11 @@ class JointsControlWidget(QWidget):
         btn_grid.addWidget(self.btn_home_position, 0, 2)
         btn_layout.addLayout(btn_grid)
         layout.addLayout(btn_layout)
-        
+        if self._compact:
+            self.btn_position_zero.hide()
+            self.btn_position_transport.hide()
+            self.btn_home_position.hide()
+
         self.setLayout(layout)
     
     def _slider_to_value(self, index: int, slider_pos: int) -> float:

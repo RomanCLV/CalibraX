@@ -45,7 +45,7 @@ class TrajectoryConfigWidget(QWidget):
     trajectoryPreviewFinished = pyqtSignal()
     showRobotGhostRequested = pyqtSignal()
     hideRobotGhostRequested = pyqtSignal()
-    updateRobotGhostRequested = pyqtSignal(list)
+    updateRobotGhostRequested = pyqtSignal(object)
 
     def __init__(self, robot_model: RobotModel, parent: QWidget = None) -> None:
         super().__init__(parent)

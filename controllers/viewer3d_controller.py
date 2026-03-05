@@ -47,6 +47,17 @@ class Viewer3DController(QObject):
 
         self.viewer_3d_widget.update_robot_ghost(self._ghost_joints)
 
+    def update_robot_ghost_with_matrices(self, joints: list[float], corrected_matrices: list) -> None:
+        if len(joints) < 6 or not corrected_matrices:
+            self.hide_robot_ghost()
+            return
+
+        self._ghost_joints = [float(joint) for joint in joints[:6]]
+        if not self._ghost_visible:
+            self.show_robot_ghost()
+
+        self.viewer_3d_widget.update_robot_ghost_from_matrices(corrected_matrices)
+
     def set_trajectory_path_segments(
         self,
         segments: list[tuple[list[list[float]], tuple[float, float, float, float]]],
@@ -69,10 +80,10 @@ class Viewer3DController(QObject):
 
     def set_trajectory_edit_tangents(
         self,
-        tangent_out_segment: list[list[float]] | None,
-        tangent_in_segment: list[list[float]] | None,
+        tangent_out_segments: list[list[list[float]]] | None,
+        tangent_in_segments: list[list[list[float]]] | None,
     ) -> None:
-        self.viewer_3d_widget.set_trajectory_edit_tangents(tangent_out_segment, tangent_in_segment)
+        self.viewer_3d_widget.set_trajectory_edit_tangents(tangent_out_segments, tangent_in_segments)
 
     def clear_trajectory_edit_tangents(self) -> None:
         self.viewer_3d_widget.clear_trajectory_edit_tangents()

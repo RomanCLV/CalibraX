@@ -72,6 +72,7 @@ class TrajectoryController(QObject):
         self.config_widget.trajectoryPreviewFinished.connect(self._on_trajectory_preview_finished)
         self.config_widget.keypoints_changed.connect(self._on_keypoints_changed)
         self.actions_widget.compute_requested.connect(self._on_compute_requested)
+        self.actions_widget.home_position_requested.connect(self._on_home_position_requested)
         self.actions_widget.play_requested.connect(self._on_play_requested)
         self.actions_widget.pause_requested.connect(self._on_pause_requested)
         self.actions_widget.stop_requested.connect(self._on_stop_requested)
@@ -83,8 +84,32 @@ class TrajectoryController(QObject):
     def _on_hide_robot_ghost_requested(self) -> None:
         self.viewer3d_controller.hide_robot_ghost()
 
-    def _on_update_robot_ghost_requested(self, joints: list[float]) -> None:
-        self.viewer3d_controller.update_robot_ghost(joints)
+    def _on_update_robot_ghost_requested(self, payload: object) -> None:
+        joints: list[float] = []
+        corrected_matrices = None
+
+        if isinstance(payload, dict):
+            raw_joints = payload.get("joints", [])
+            if isinstance(raw_joints, list):
+                joints = [float(v) for v in raw_joints[:6]]
+            maybe_matrices = payload.get("corrected_matrices")
+            if isinstance(maybe_matrices, list):
+                corrected_matrices = maybe_matrices
+        elif isinstance(payload, list):
+            joints = [float(v) for v in payload[:6]]
+
+        if len(joints) < 6:
+            self.viewer3d_controller.hide_robot_ghost()
+            return
+
+        if corrected_matrices is None:
+            fk_result = self.robot_model.compute_fk_joints(joints)
+            if fk_result is None:
+                self.viewer3d_controller.hide_robot_ghost()
+                return
+            _, corrected_matrices, _, _, _ = fk_result
+
+        self.viewer3d_controller.update_robot_ghost_with_matrices(joints, corrected_matrices)
 
     def _on_keypoints_changed(self, _keypoints: list[TrajectoryKeypoint]) -> None:
         # During live dialog preview, the final recompute is triggered by
@@ -119,6 +144,10 @@ class TrajectoryController(QObject):
 
     def _on_compute_requested(self) -> None:
         self._recompute_trajectory()
+
+    def _on_home_position_requested(self) -> None:
+        self._stop_playback()
+        self.robot_model.go_to_home_position()
 
     def _recompute_trajectory(self, keypoints_override: list[TrajectoryKeypoint] | None = None) -> None:
         self._stop_playback()
@@ -285,45 +314,67 @@ class TrajectoryController(QObject):
 
         return chunks
 
-    def _build_edit_tangent_segments(self) -> tuple[list[list[float]] | None, list[list[float]] | None]:
+    def _build_edit_tangent_segments(
+        self,
+    ) -> tuple[list[list[list[float]]] | None, list[list[list[float]]] | None]:
         if self._editing_keypoint_index is None:
             return None, None
-        idx = self._editing_keypoint_index
         keypoints = self._displayed_keypoints
-        if idx < 0 or idx >= len(keypoints):
-            return None, None
-        if keypoints[idx].mode != KeypointMotionMode.CUBIC:
+        if not keypoints or not self.current_trajectory.segments:
             return None, None
 
-        end_anchor = resolve_keypoint_xyz(self.robot_model, keypoints[idx])
-        if end_anchor is None:
+        tcp_pose = self.robot_model.get_tcp_pose()
+        if len(tcp_pose) < 3:
             return None, None
+        first_start_anchor = [float(v) for v in tcp_pose[:3]]
 
-        if idx > 0:
-            start_anchor = resolve_keypoint_xyz(self.robot_model, keypoints[idx - 1])
-        else:
-            tcp_pose = self.robot_model.get_tcp_pose()
-            start_anchor = [float(v) for v in tcp_pose[:3]] if len(tcp_pose) >= 3 else None
-        if start_anchor is None:
-            return None, None
+        tangent_out_segments: list[list[list[float]]] = []
+        tangent_in_segments: list[list[list[float]]] = []
+        count = min(len(self.current_trajectory.segments), len(keypoints))
+        for segment_index in range(count):
+            segment_result = self.current_trajectory.segments[segment_index]
+            end_anchor = resolve_keypoint_xyz(self.robot_model, keypoints[segment_index])
+            if end_anchor is None:
+                continue
 
-        segment_length_mm = math_utils.norm3(
-            end_anchor[0] - start_anchor[0],
-            end_anchor[1] - start_anchor[1],
-            end_anchor[2] - start_anchor[2],
+            if segment_index == 0:
+                start_anchor = first_start_anchor
+            else:
+                start_anchor = resolve_keypoint_xyz(self.robot_model, keypoints[segment_index - 1])
+                if start_anchor is None:
+                    continue
+
+            out_direction = [float(v) for v in segment_result.out_direction[:3]]
+            in_direction = [float(v) for v in segment_result.in_direction[:3]]
+
+            if not math_utils.is_near_zero_vector_xyz(out_direction):
+                tangent_out_segments.append(
+                    [
+                        start_anchor,
+                        [
+                            start_anchor[0] + out_direction[0],
+                            start_anchor[1] + out_direction[1],
+                            start_anchor[2] + out_direction[2],
+                        ],
+                    ]
+                )
+
+            if not math_utils.is_near_zero_vector_xyz(in_direction):
+                tangent_in_segments.append(
+                    [
+                        end_anchor,
+                        [
+                            end_anchor[0] + in_direction[0],
+                            end_anchor[1] + in_direction[1],
+                            end_anchor[2] + in_direction[2],
+                        ],
+                    ]
+                )
+
+        return (
+            tangent_out_segments if tangent_out_segments else None,
+            tangent_in_segments if tangent_in_segments else None,
         )
-        start_vec, end_vec = keypoints[idx].resolve_cubic_tangent_vectors(segment_length_mm)
-
-        tangent_out_segment: list[list[float]] | None = [
-            start_anchor,
-            [start_anchor[0] + start_vec[0], start_anchor[1] + start_vec[1], start_anchor[2] + start_vec[2]],
-        ]
-        tangent_in_segment: list[list[float]] | None = [
-            end_anchor,
-            [end_anchor[0] + end_vec[0], end_anchor[1] + end_vec[1], end_anchor[2] + end_vec[2]],
-        ]
-
-        return tangent_out_segment, tangent_in_segment
 
     def _update_3d_keypoint_overlays(self) -> None:
         if not self._displayed_keypoints:
@@ -354,8 +405,8 @@ class TrajectoryController(QObject):
             editing_index=_mapped_index(self._editing_keypoint_index),
         )
 
-        tangent_out_segment, tangent_in_segment = self._build_edit_tangent_segments()
-        self.viewer3d_controller.set_trajectory_edit_tangents(tangent_out_segment, tangent_in_segment)
+        tangent_out_segments, tangent_in_segments = self._build_edit_tangent_segments()
+        self.viewer3d_controller.set_trajectory_edit_tangents(tangent_out_segments, tangent_in_segments)
 
     def _update_timeline(self) -> None:
         if not self.current_samples:
