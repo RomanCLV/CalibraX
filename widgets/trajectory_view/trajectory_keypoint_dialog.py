@@ -51,7 +51,7 @@ class TrajectoryKeypointDialog(QDialog):
     def __init__(self, robot_model: RobotModel, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Point clé")
-        self._dialog_min_width = 420
+        self._dialog_min_width = 620
         self.setMinimumWidth(self._dialog_min_width)
         self.robot_model = robot_model
 
@@ -157,36 +157,68 @@ class TrajectoryKeypointDialog(QDialog):
 
         cubic_tab_layout = QVBoxLayout(self.cubic_tab)
 
-        cubic_layout = QGridLayout()
-        cubic_layout.addWidget(QLabel("Direction debut segment"), 0, 0)
+        cubic_layout = QVBoxLayout()
+
+        cubic_label_width = 120
+
+        start_group = QGroupBox("Debut de segment")
+        start_layout = QGridLayout()
+        start_direction_label = QLabel("Direction (X/Y/Z)")
+        start_direction_label.setMinimumWidth(cubic_label_width)
+        start_layout.addWidget(start_direction_label, 0, 0)
         for i in range(3):
             spin = self._make_spin(-1000.0, 1000.0, 3, 0.1)
             self.cubic_vector_1.append(spin)
-            cubic_layout.addWidget(spin, 0, i + 1)
-        cubic_layout.addWidget(QLabel("Amplitude (%)"), 0, 4)
+            start_layout.addWidget(spin, 0, i + 1)
+
+        start_amp_label = QLabel("Amplitude (%)")
+        start_amp_label.setMinimumWidth(cubic_label_width)
+        start_layout.addWidget(start_amp_label, 1, 0)
         self.cubic_amplitude_1.setRange(0.0, 1_000_000.0)
         self.cubic_amplitude_1.setDecimals(3)
         self.cubic_amplitude_1.setSingleStep(1.0)
-        cubic_layout.addWidget(self.cubic_amplitude_1, 0, 5)
+        start_layout.addWidget(self.cubic_amplitude_1, 1, 1)
+
         self.cubic_auto_start_btn.setToolTip(
             "Calcule la tangente de debut du segment courant a partir du segment precedent."
         )
-        cubic_layout.addWidget(self.cubic_auto_start_btn, 0, 6)
+        start_auto_label = QLabel()
+        start_auto_label.setMinimumWidth(cubic_label_width)
+        start_layout.addWidget(start_auto_label, 2, 0)
+        start_layout.addWidget(self.cubic_auto_start_btn, 2, 1)
+        start_layout.setColumnStretch(4, 1)
+        start_group.setLayout(start_layout)
+        cubic_layout.addWidget(start_group)
 
-        cubic_layout.addWidget(QLabel("Direction fin segment"), 1, 0)
+        end_group = QGroupBox("Fin de segment")
+        end_layout = QGridLayout()
+        end_direction_label = QLabel("Direction (X/Y/Z)")
+        end_direction_label.setMinimumWidth(cubic_label_width)
+        end_layout.addWidget(end_direction_label, 0, 0)
         for i in range(3):
             spin = self._make_spin(-1000.0, 1000.0, 3, 0.1)
             self.cubic_vector_2.append(spin)
-            cubic_layout.addWidget(spin, 1, i + 1)
-        cubic_layout.addWidget(QLabel("Amplitude (%)"), 1, 4)
+            end_layout.addWidget(spin, 0, i + 1)
+
+        end_amp_label = QLabel("Amplitude (%)")
+        end_amp_label.setMinimumWidth(cubic_label_width)
+        end_layout.addWidget(end_amp_label, 1, 0)
         self.cubic_amplitude_2.setRange(0.0, 1_000_000.0)
         self.cubic_amplitude_2.setDecimals(3)
         self.cubic_amplitude_2.setSingleStep(1.0)
-        cubic_layout.addWidget(self.cubic_amplitude_2, 1, 5)
+        end_layout.addWidget(self.cubic_amplitude_2, 1, 1)
+
         self.cubic_auto_end_btn.setToolTip(
             "Calcule la tangente de fin du segment courant a partir du segment suivant."
         )
-        cubic_layout.addWidget(self.cubic_auto_end_btn, 1, 6)
+        end_auto_label = QLabel()
+        end_auto_label.setMinimumWidth(cubic_label_width)
+        end_layout.addWidget(end_auto_label, 2, 0)
+        end_layout.addWidget(self.cubic_auto_end_btn, 2, 1)
+        end_layout.setColumnStretch(4, 1)
+        end_group.setLayout(end_layout)
+        cubic_layout.addWidget(end_group)
+
         cubic_group_layout = QVBoxLayout()
         cubic_group_layout.addLayout(cubic_layout)
         self.cubic_hint_label.setWordWrap(True)
@@ -224,6 +256,7 @@ class TrajectoryKeypointDialog(QDialog):
         self.config_hint_label.setMinimumHeight(self.config_hint_label.fontMetrics().lineSpacing() * 2 + 4)
         self.config_hint_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         config_layout.addWidget(self.config_hint_label)
+        config_layout.addStretch()
         config_group.setLayout(config_layout)
 
         config_tab_layout = QVBoxLayout(self.config_tab)
