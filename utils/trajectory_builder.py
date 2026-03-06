@@ -14,7 +14,7 @@ from models.trajectory_result import (
 )
 from utils.bezier3 import Bezier3Coefficients3D
 import utils.math_utils as math_utils
-from utils.mgi import MGI, MgiConfigKey, MgiResult, MgiResultItem, MgiResultStatus
+from utils.mgi import MGI, MgiConfigKey, MgiResult, MgiResultItem, MgiResultStatus, ConfigurationIdentifier
 from utils.trajectory_constants import LINEAR_TANGENT_RATIO
 
 
@@ -118,6 +118,93 @@ class TrajectoryBuilder:
         if len(dh_pose) < 6:
             return None
         return [float(v) for v in dh_pose[:6]]
+
+    def _resolve_keypoint_joints(self, keypoint: TrajectoryKeypoint, reference_sample: TrajectorySample | None, allowed_configs: set[MgiConfigKey]) -> list[float] | None:
+        if keypoint.target_type == KeypointTargetType.JOINT:
+            return TrajectoryBuilder._normalize_joints_6(keypoint.joint_target)
+        pose = self._resolve_keypoint_pose(keypoint)
+        if pose is None:
+            return None
+        mgi_result = self._compute_mgi_for_pose(pose, reference_sample)
+        selected_solution = self._select_best_solution(mgi_result, reference_sample, allowed_configs)
+        if selected_solution is None:
+            return None
+        _, solution = selected_solution
+        return TrajectoryBuilder._normalize_joints_6(solution.joints)
+
+    def _resolve_PTP_segment_endpoints(self,
+                                       segment: TrajectorySegment,
+                                       previous_sample: TrajectorySample | None,
+                                       effective_allowed_configs: set[MgiConfigKey],
+                                       config_identifier: ConfigurationIdentifier):
+        from_joints = self._resolve_keypoint_joints(segment.from_keypoint, previous_sample, effective_allowed_configs)
+        if from_joints is None:
+            return None, None
+
+        to_reference_sample = TrajectorySample()
+        to_reference_sample.reachable = True
+        to_reference_sample.joints = TrajectoryBuilder._normalize_joints_6(from_joints)
+        to_joints = self._resolve_keypoint_joints(segment.to_keypoint, to_reference_sample, effective_allowed_configs)
+        if to_joints is None:
+            return None, None
+
+        from_config = MgiConfigKey.identify_configuration_deg(from_joints, config_identifier)
+        to_config = MgiConfigKey.identify_configuration_deg(to_joints, config_identifier)
+        if from_config not in effective_allowed_configs or to_config not in effective_allowed_configs:
+            return None, None
+        return from_joints, to_joints
+
+    def _compute_PTP_shortest_path(self, from_joints: list[float], to_joints: list[float]) -> list[float]:
+        axis_limits = self.robot_model.get_axis_limits()
+        joint_deltas_deg = [0.0] * 6
+        for axis in range(6):
+            q0 = float(from_joints[axis])
+            qf = float(to_joints[axis])
+            q_min, q_max = axis_limits[axis]
+            q_min = float(q_min)
+            q_max = float(q_max)
+
+            if q0 < q_min - self._EPS or q0 > q_max + self._EPS:
+                return None
+
+            k_min = int(math.ceil((q_min - qf) / 360.0))
+            k_max = int(math.floor((q_max - qf) / 360.0))
+            if k_min > k_max:
+                return None
+
+            best_delta: float | None = None
+            for k in range(k_min, k_max + 1):
+                candidate_delta = (qf + 360.0 * k) - q0
+                if best_delta is None or abs(candidate_delta) < abs(best_delta):
+                    best_delta = candidate_delta
+
+            if best_delta is None:
+                return None
+
+            joint_deltas_deg[axis] = float(best_delta)
+        return joint_deltas_deg
+
+    def _resolve_PTP_duration(self, segment: TrajectorySegment, joint_deltas_deg: list[float]):
+        speed_ratio = max(0.0, min(1.0, float(segment.to_keypoint.ptp_speed_percent) / 100.0))
+        axis_speed_limits = [float(v) for v in self.robot_model.get_axis_speed_limits()[:6]]
+        while len(axis_speed_limits) < 6:
+            axis_speed_limits.append(0.0)
+        effective_speed_limits = [max(0.0, v * speed_ratio) for v in axis_speed_limits]
+
+        # For s(t)=6t^5-15t^4+10t^3, max(ds/dtau)=1.875.
+        quintic_peak_scale = 1.875
+        required_duration_s = 0.0
+        for axis in range(6):
+            move = abs(joint_deltas_deg[axis])
+            if move <= self._EPS:
+                continue
+            vmax = effective_speed_limits[axis]
+            if vmax <= self._EPS:
+                return None, None
+
+            required_duration_s = max(required_duration_s, quintic_peak_scale * move / vmax)
+        
+        return required_duration_s, effective_speed_limits
 
     @staticmethod
     def _linear_tangents_from_points(p0, p3, tangent_ratio: float = LINEAR_TANGENT_RATIO):
@@ -378,13 +465,51 @@ class TrajectoryBuilder:
         previous_sample: TrajectorySample | None = None,
         start_time_s: float = 0.0,
     ) -> SegmentResult:
-        # Temporary fallback: for now, PTP uses straight-bezier XYZ.
-        return self._generate_bezier_segment(
-            segment=segment,
-            previous_segment_last_sample=previous_sample,
-            start_time_s=start_time_s,
-            force_linear_handles=True,
-        )
+        result = SegmentResult()
+        result.status = TrajectoryComputationStatus.SUCCESS
+        result.mode = segment.to_keypoint.mode
+
+        # 1) Resolve effective configuration constraints for this segment.
+        effective_allowed_configs = self._resolve_effective_allowed_configs(segment)
+        if not effective_allowed_configs:
+            result.status = TrajectoryComputationStatus.POINT_UNREACHABLE
+            result.last_time = float(start_time_s)
+            return result
+
+        # 2) Resolve segment endpoints in joint space.
+        config_identifier = self.robot_model.get_config_identifier()
+
+        from_joints, to_joints = self._resolve_PTP_segment_endpoints(segment, previous_sample, effective_allowed_configs, config_identifier)
+        if from_joints is None or to_joints is None:
+            result.status = TrajectoryComputationStatus.POINT_UNREACHABLE
+            result.last_time = float(start_time_s)
+            return result
+
+        # 3) Compute shortest feasible delta on each axis while staying in joint limits.
+        joint_deltas_deg = self._compute_PTP_shortest_path(from_joints, to_joints)
+        if joint_deltas_deg is None:
+            result.status = TrajectoryComputationStatus.POINT_UNREACHABLE
+            result.last_time = float(start_time_s)
+            return result
+
+        # 4) Build synchronized timing from speed limits and requested PTP speed percent.
+        required_duration_s, effective_speed_limits = self._resolve_PTP_duration(segment, joint_deltas_deg)
+        if required_duration_s is None or effective_speed_limits is None:
+            result.status = TrajectoryComputationStatus.OVER_SPEED_LIMIT
+            result.last_time = float(start_time_s)
+            return result
+
+        intervals = 1
+        if required_duration_s > self._EPS:
+            intervals = int(math.ceil(required_duration_s / self.sample_dt_s))
+        intervals = min(max(1, intervals), TrajectoryBuilder.MAX_SAMPLES_PER_SEGMENT)
+
+        result.duration = intervals * self.sample_dt_s
+        result.last_time = start_time_s + result.duration
+
+        # 5) Evaluate joint laws and fill full sample payload (pose, dynamics, errors, stats).
+        self._generate_PTP_segment(previous_sample, start_time_s, intervals, from_joints, joint_deltas_deg, effective_allowed_configs, config_identifier, effective_speed_limits, result)
+        return result
 
     def compute_LIN_segment(
         self,
@@ -573,3 +698,148 @@ class TrajectoryBuilder:
         self._update_articular_dynamics(sample, previous_sample, dt)
         return sample
 
+    def _build_sample_from_ptp_joints(
+        self,
+        time_s: float,
+        joints_deg: list[float],
+        previous_sample: TrajectorySample | None,
+        allowed_configs: set[MgiConfigKey],
+        config_identifier: ConfigurationIdentifier,
+        speed_limits_deg_s: list[float],
+    ) -> TrajectorySample:
+        # A) Create base sample payload from joint state at current time.
+        sample = TrajectorySample()
+        sample.time = float(time_s)
+        sample.joints = TrajectoryBuilder._normalize_joints_6(joints_deg)
+
+        # B) Compute pose from FK and expose configuration reachability metadata.
+        fk_result = self.robot_model.compute_fk_joints(sample.joints)
+        if fk_result is None:
+            sample.reachable = False
+            sample.error_code = TrajectorySampleErrorCode.POINT_UNREACHABLE
+            sample.configuration = None
+            sample.pose = [0.0] * 6
+            sample.mgi_solutions = {}
+        else:
+            _, _, dh_pose, _, _ = fk_result
+            sample.pose = [float(v) for v in dh_pose[:6]]
+            while len(sample.pose) < 6:
+                sample.pose.append(0.0)
+
+            config_key = MgiConfigKey.identify_configuration_deg(sample.joints, config_identifier)
+            config_status = (
+                MgiResultStatus.VALID.name
+                if config_key in allowed_configs
+                else MgiResultStatus.FORBIDDEN_CONFIGURATION.name
+            )
+            sample.mgi_solutions = {
+                config_key: TrajectorySampleMgiSolution(status=config_status, joints=sample.joints)
+            }
+
+            if config_status != MgiResultStatus.VALID.name:
+                sample.reachable = False
+                sample.error_code = TrajectorySampleErrorCode.POINT_UNREACHABLE
+                sample.configuration = None
+            else:
+                sample.reachable = True
+                sample.error_code = TrajectorySampleErrorCode.NONE
+                sample.configuration = config_key
+
+        # C) Compute cartesian/articular dynamics from previous sample.
+        if previous_sample is None:
+            sample.cartesian_velocity = [0.0] * 6
+            sample.cartesian_acceleration = [0.0] * 6
+            sample.articular_velocity = [0.0] * 6
+            sample.articular_acceleration = [0.0] * 6
+            sample.velocity = 0.0
+            sample.acceleration = 0.0
+            return sample
+
+        dt = sample.time - previous_sample.time
+        if dt <= self._EPS:
+            dt = self.sample_dt_s
+
+        dA = TrajectoryBuilder._shortest_angle_delta_deg(previous_sample.pose[3], sample.pose[3])
+        dB = TrajectoryBuilder._shortest_angle_delta_deg(previous_sample.pose[4], sample.pose[4])
+        dC = TrajectoryBuilder._shortest_angle_delta_deg(previous_sample.pose[5], sample.pose[5])
+
+        sample.cartesian_velocity[0] = (sample.pose[0] - previous_sample.pose[0]) / dt
+        sample.cartesian_velocity[1] = (sample.pose[1] - previous_sample.pose[1]) / dt
+        sample.cartesian_velocity[2] = (sample.pose[2] - previous_sample.pose[2]) / dt
+        sample.cartesian_velocity[3] = dA / dt
+        sample.cartesian_velocity[4] = dB / dt
+        sample.cartesian_velocity[5] = dC / dt
+
+        for axis in range(6):
+            sample.cartesian_acceleration[axis] = (
+                sample.cartesian_velocity[axis] - previous_sample.cartesian_velocity[axis]
+            ) / dt
+
+        sample.velocity = math_utils.norm3(
+            sample.cartesian_velocity[0],
+            sample.cartesian_velocity[1],
+            sample.cartesian_velocity[2],
+        )
+        sample.acceleration = math_utils.norm3(
+            sample.cartesian_acceleration[0],
+            sample.cartesian_acceleration[1],
+            sample.cartesian_acceleration[2],
+        )
+        self._update_articular_dynamics(sample, previous_sample, dt)
+
+        # D) Enforce per-axis speed limits (velocity-only constraints for now).
+        if sample.error_code == TrajectorySampleErrorCode.NONE:
+            for axis in range(6):
+                if abs(sample.articular_velocity[axis]) <= speed_limits_deg_s[axis] + 1e-6:
+                    continue
+                sample.error_code = TrajectorySampleErrorCode.OVER_SPEED_LIMIT
+                sample.error_axis = axis
+                break
+
+        return sample
+
+    def _generate_PTP_segment(
+        self,
+        previous_sample: TrajectorySample | None,
+        start_time_s: float,
+        intervals: int,
+        from_joints: list[float],
+        joint_deltas_deg: list[float],
+        effective_allowed_configs: set[MgiConfigKey],
+        config_identifier: ConfigurationIdentifier,
+        effective_speed_limits: list[float],
+        result: SegmentResult,
+    ):
+        # This loop only orchestrates sampling:
+        # - evaluate the joint law,
+        # - build one sample,
+        # - append and update segment-level aggregates.
+        previous_generated_sample = previous_sample
+        for i in range(1, intervals + 1):
+            time_s = start_time_s + i * self.sample_dt_s
+
+            linear_t = i / intervals
+            smooth_t = math_utils.quintic_transition(linear_t)
+            joints_deg = [from_joints[axis] + joint_deltas_deg[axis] * smooth_t for axis in range(6)]
+
+            sample = self._build_sample_from_ptp_joints(
+                time_s=time_s,
+                joints_deg=joints_deg,
+                previous_sample=previous_generated_sample,
+                allowed_configs=effective_allowed_configs,
+                config_identifier=config_identifier,
+                speed_limits_deg_s=effective_speed_limits,
+            )
+
+            # Segment aggregation is intentionally separated from sample creation.
+            result.samples.append(sample)
+            TrajectoryBuilder._update_joint_stats(result, sample)
+            self._register_sample_error(result, sample, sample_index=i - 1)
+            previous_generated_sample = sample
+
+            if self._should_stop_on_error(result.status):
+                break
+
+        generated_intervals = len(result.samples)
+        result.duration = generated_intervals * self.sample_dt_s
+        result.last_time = start_time_s + result.duration
