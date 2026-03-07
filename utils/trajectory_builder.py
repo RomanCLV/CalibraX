@@ -77,6 +77,10 @@ class TrajectoryBuilder:
             return TrajectoryComputationStatus.POINT_UNREACHABLE
         if error_code == TrajectorySampleErrorCode.OVER_SPEED_LIMIT:
             return TrajectoryComputationStatus.OVER_SPEED_LIMIT
+        if error_code == TrajectorySampleErrorCode.FORBIDDEN_CONFIGURATION:
+            return TrajectoryComputationStatus.FORBIDDEN_CONFIGURATION
+        if error_code == TrajectorySampleErrorCode.CONFIGURATION_DISCONTINUITY:
+            return TrajectoryComputationStatus.CONFIGURATION_DISCONTINUITY
         return TrajectoryComputationStatus.SUCCESS
 
     @staticmethod
@@ -135,22 +139,23 @@ class TrajectoryBuilder:
     def _resolve_PTP_segment_endpoints(self,
                                        segment: TrajectorySegment,
                                        previous_sample: TrajectorySample | None,
-                                       effective_allowed_configs: set[MgiConfigKey],
+                                       from_allowed_configs: set[MgiConfigKey],
+                                       to_allowed_configs: set[MgiConfigKey],
                                        config_identifier: ConfigurationIdentifier):
-        from_joints = self._resolve_keypoint_joints(segment.from_keypoint, previous_sample, effective_allowed_configs)
+        from_joints = self._resolve_keypoint_joints(segment.from_keypoint, previous_sample, from_allowed_configs)
         if from_joints is None:
             return None, None
 
         to_reference_sample = TrajectorySample()
         to_reference_sample.reachable = True
         to_reference_sample.joints = TrajectoryBuilder._normalize_joints_6(from_joints)
-        to_joints = self._resolve_keypoint_joints(segment.to_keypoint, to_reference_sample, effective_allowed_configs)
+        to_joints = self._resolve_keypoint_joints(segment.to_keypoint, to_reference_sample, to_allowed_configs)
         if to_joints is None:
             return None, None
 
         from_config = MgiConfigKey.identify_configuration_deg(from_joints, config_identifier)
         to_config = MgiConfigKey.identify_configuration_deg(to_joints, config_identifier)
-        if from_config not in effective_allowed_configs or to_config not in effective_allowed_configs:
+        if from_config not in from_allowed_configs or to_config not in to_allowed_configs:
             return None, None
         return from_joints, to_joints
 
@@ -267,6 +272,15 @@ class TrajectoryBuilder:
         robot_allowed = self._get_robot_allowed_configs()
         return robot_allowed & from_allowed & to_allowed
 
+    def _resolve_ptp_allowed_configs(
+        self,
+        segment: TrajectorySegment,
+    ) -> tuple[set[MgiConfigKey], set[MgiConfigKey], set[MgiConfigKey]]:
+        robot_allowed = self._get_robot_allowed_configs()
+        from_allowed = robot_allowed & set(segment.from_keypoint.allowed_configs)
+        to_allowed = robot_allowed & set(segment.to_keypoint.allowed_configs)
+        return from_allowed, to_allowed, (from_allowed | to_allowed)
+
     def _get_reference_joints_for_ik(self, previous_sample: TrajectorySample | None) -> list[float]:
         if previous_sample is not None and previous_sample.reachable:
             return TrajectoryBuilder._normalize_joints_6(previous_sample.joints)
@@ -358,6 +372,63 @@ class TrajectoryBuilder:
             vel = (sample.joints[axis] - previous_sample.joints[axis]) / dt
             sample.articular_velocity[axis] = vel
             sample.articular_acceleration[axis] = (vel - previous_sample.articular_velocity[axis]) / dt
+
+    @staticmethod
+    def _resolve_error_for_missing_selected_solution(
+        mgi_result: MgiResult,
+        allowed_configs: set[MgiConfigKey],
+    ) -> TrajectorySampleErrorCode:
+        has_any_valid = False
+        has_allowed_valid = False
+        for config_key, solution in mgi_result.solutions.items():
+            if solution.status != MgiResultStatus.VALID:
+                continue
+            has_any_valid = True
+            if config_key in allowed_configs:
+                has_allowed_valid = True
+                break
+        if has_any_valid and not has_allowed_valid:
+            return TrajectorySampleErrorCode.FORBIDDEN_CONFIGURATION
+        return TrajectorySampleErrorCode.POINT_UNREACHABLE
+
+    @staticmethod
+    def _resolve_configuration_discontinuity_axis(
+        sample: TrajectorySample,
+        previous_sample: TrajectorySample | None,
+    ) -> int | None:
+        if previous_sample is None:
+            return None
+        if not sample.reachable or not previous_sample.reachable:
+            return None
+        if sample.configuration is None or previous_sample.configuration is None:
+            return None
+        if sample.configuration == previous_sample.configuration:
+            return None
+
+        biggest_jump_axis = 0
+        biggest_jump = -1.0
+        for axis in range(6):
+            jump = abs(float(sample.joints[axis]) - float(previous_sample.joints[axis]))
+            if jump > biggest_jump:
+                biggest_jump = jump
+                biggest_jump_axis = axis
+        return biggest_jump_axis
+
+    def _flag_configuration_discontinuity_if_any(
+        self,
+        sample: TrajectorySample,
+        previous_sample: TrajectorySample | None,
+    ) -> None:
+        if sample.error_code != TrajectorySampleErrorCode.NONE:
+            return
+        discontinuity_axis = TrajectoryBuilder._resolve_configuration_discontinuity_axis(
+            sample,
+            previous_sample,
+        )
+        if discontinuity_axis is None:
+            return
+        sample.error_code = TrajectorySampleErrorCode.CONFIGURATION_DISCONTINUITY
+        sample.error_axis = discontinuity_axis
 
     def select_config(
         self,
@@ -469,17 +540,24 @@ class TrajectoryBuilder:
         result.status = TrajectoryComputationStatus.SUCCESS
         result.mode = segment.to_keypoint.mode
 
-        # 1) Resolve effective configuration constraints for this segment.
-        effective_allowed_configs = self._resolve_effective_allowed_configs(segment)
-        if not effective_allowed_configs:
-            result.status = TrajectoryComputationStatus.POINT_UNREACHABLE
+        # 1) Resolve allowed configurations for PTP endpoints independently.
+        #    This keeps PTP simple and allows start/end in different configs.
+        from_allowed_configs, to_allowed_configs, sample_allowed_configs = self._resolve_ptp_allowed_configs(segment)
+        if not from_allowed_configs or not to_allowed_configs:
+            result.status = TrajectoryComputationStatus.NO_COMMON_ALLOWED_CONFIGURATION
             result.last_time = float(start_time_s)
             return result
 
         # 2) Resolve segment endpoints in joint space.
         config_identifier = self.robot_model.get_config_identifier()
 
-        from_joints, to_joints = self._resolve_PTP_segment_endpoints(segment, previous_sample, effective_allowed_configs, config_identifier)
+        from_joints, to_joints = self._resolve_PTP_segment_endpoints(
+            segment,
+            previous_sample,
+            from_allowed_configs,
+            to_allowed_configs,
+            config_identifier,
+        )
         if from_joints is None or to_joints is None:
             result.status = TrajectoryComputationStatus.POINT_UNREACHABLE
             result.last_time = float(start_time_s)
@@ -508,7 +586,17 @@ class TrajectoryBuilder:
         result.last_time = start_time_s + result.duration
 
         # 5) Evaluate joint laws and fill full sample payload (pose, dynamics, errors, stats).
-        self._generate_PTP_segment(previous_sample, start_time_s, intervals, from_joints, joint_deltas_deg, effective_allowed_configs, config_identifier, effective_speed_limits, result)
+        self._generate_PTP_segment(
+            previous_sample,
+            start_time_s,
+            intervals,
+            from_joints,
+            joint_deltas_deg,
+            sample_allowed_configs,
+            config_identifier,
+            effective_speed_limits,
+            result,
+        )
         return result
 
     def compute_LIN_segment(
@@ -555,7 +643,7 @@ class TrajectoryBuilder:
         effective_allowed_configs = self._resolve_effective_allowed_configs(segment)
         if not effective_allowed_configs:
             result = TrajectoryBuilder._new_empty_segment(start_time_s, segment.to_keypoint.mode)
-            result.status = TrajectoryComputationStatus.POINT_UNREACHABLE
+            result.status = TrajectoryComputationStatus.NO_COMMON_ALLOWED_CONFIGURATION
             return result
 
         p0 = [from_pose[0], from_pose[1], from_pose[2]]
@@ -645,7 +733,10 @@ class TrajectoryBuilder:
         selected_solution = self._select_best_solution(mgi_result, previous_sample, allowed_configs)
         if selected_solution is None:
             sample.reachable = False
-            sample.error_code = TrajectorySampleErrorCode.POINT_UNREACHABLE
+            sample.error_code = TrajectoryBuilder._resolve_error_for_missing_selected_solution(
+                mgi_result,
+                allowed_configs,
+            )
             sample.configuration = None
             sample.joints = [0.0] * 6
         else:
@@ -696,6 +787,7 @@ class TrajectoryBuilder:
         )
 
         self._update_articular_dynamics(sample, previous_sample, dt)
+        self._flag_configuration_discontinuity_if_any(sample, previous_sample)
         return sample
 
     def _build_sample_from_ptp_joints(
@@ -738,7 +830,7 @@ class TrajectoryBuilder:
 
             if config_status != MgiResultStatus.VALID.name:
                 sample.reachable = False
-                sample.error_code = TrajectorySampleErrorCode.POINT_UNREACHABLE
+                sample.error_code = TrajectorySampleErrorCode.FORBIDDEN_CONFIGURATION
                 sample.configuration = None
             else:
                 sample.reachable = True
@@ -786,6 +878,7 @@ class TrajectoryBuilder:
             sample.cartesian_acceleration[2],
         )
         self._update_articular_dynamics(sample, previous_sample, dt)
+        self._flag_configuration_discontinuity_if_any(sample, previous_sample)
 
         # D) Enforce per-axis speed limits (velocity-only constraints for now).
         if sample.error_code == TrajectorySampleErrorCode.NONE:

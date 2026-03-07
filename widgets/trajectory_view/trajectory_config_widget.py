@@ -456,6 +456,8 @@ class TrajectoryConfigWidget(QWidget):
 
     def set_trajectory_context(self, trajectory_result: TrajectoryResult | None) -> None:
         self._trajectory_context = trajectory_result
+        if self._active_dialog is not None:
+            self._active_dialog.update_trajectory_context(trajectory_result)
 
     def get_keypoints(self) -> list[TrajectoryKeypoint]:
         return [keypoint.clone() for keypoint in self._keypoints]

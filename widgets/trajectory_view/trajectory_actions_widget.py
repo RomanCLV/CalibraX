@@ -34,6 +34,7 @@ class TrajectoryActionsWidget(QWidget):
 
         self.time_slider = QSlider(Qt.Orientation.Horizontal)
         self.time_label = QLabel("Temps : 0.00 s")
+        self.issues_label = QLabel("")
 
         self._setup_ui()
         self._setup_connections()
@@ -63,6 +64,11 @@ class TrajectoryActionsWidget(QWidget):
 
         layout.addLayout(row_actions)
         layout.addLayout(row_timeline)
+
+        self.issues_label.setWordWrap(True)
+        self.issues_label.setStyleSheet("color: #d9534f; font-weight: bold;")
+        self.issues_label.hide()
+        layout.addWidget(self.issues_label)
 
     def _setup_connections(self) -> None:
         self.btn_compute.clicked.connect(self.compute_requested.emit)
@@ -101,6 +107,14 @@ class TrajectoryActionsWidget(QWidget):
         self.time_slider.setValue(self._time_to_slider(time_value))
         self.time_slider.blockSignals(False)
         self.time_label.setText(f"Temps : {time_value:.2f} s")
+
+    def set_issue_messages(self, messages: list[str]) -> None:
+        if not messages:
+            self.issues_label.setText("")
+            self.issues_label.hide()
+            return
+        self.issues_label.setText("Problemes detectes: " + " | ".join(messages))
+        self.issues_label.show()
 
     def set_editing_locked(self, locked: bool) -> None:
         enabled = not locked

@@ -14,6 +14,7 @@ from models.trajectory_result import (
 from models.trajectory_keypoint import KeypointMotionMode, TrajectoryKeypoint
 from utils.trajectory_builder import TrajectoryBuilder
 from utils.trajectory_keypoint_utils import resolve_keypoint_xyz
+from utils.trajectory_status import build_trajectory_issue_messages
 from views.trajectory_view import TrajectoryView
 from controllers.viewer3d_controller import Viewer3DController
 import utils.math_utils as math_utils
@@ -162,6 +163,7 @@ class TrajectoryController(QObject):
             self.current_samples = []
             self.current_sample_times = []
             self._reset_trajectory_visuals()
+            self._update_trajectory_issue_messages()
             return
 
         current_joints = self.robot_model.get_joints()
@@ -183,6 +185,7 @@ class TrajectoryController(QObject):
         self._update_3d_trajectory_path()
         self._update_3d_keypoint_overlays()
         self._update_timeline()
+        self._update_trajectory_issue_messages()
         self._apply_time_value(0.0, force_real_robot=False)
 
     @staticmethod
@@ -419,11 +422,16 @@ class TrajectoryController(QObject):
         self._current_time_s = 0.0
         self._update_graphs()
         self.actions_widget.set_time_range(0.0, 0.0)
+        self.actions_widget.set_issue_messages([])
         self.viewer3d_controller.clear_trajectory_path()
         self.viewer3d_controller.clear_trajectory_keypoints()
         self.viewer3d_controller.clear_trajectory_edit_tangents()
         if not self._is_keypoint_preview_active:
             self.viewer3d_controller.hide_robot_ghost()
+
+    def _update_trajectory_issue_messages(self) -> None:
+        issues = build_trajectory_issue_messages(self.current_trajectory)
+        self.actions_widget.set_issue_messages(issues)
 
     def _on_time_value_changed(self, time_s: float) -> None:
         self._apply_time_value(time_s, force_real_robot=True)
