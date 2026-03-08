@@ -19,14 +19,12 @@ def status_to_message(status: TrajectoryComputationStatus, axis: int | None = No
         return "valide"
     if status == TrajectoryComputationStatus.POINT_UNREACHABLE:
         return "point inatteignable"
-    if status == TrajectoryComputationStatus.OVER_SPEED_LIMIT:
-        return f"limite de vitesse depassee ({_axis_label(axis)})"
+    if status == TrajectoryComputationStatus.OVER_DYNAMIC_LIMIT:
+        return f"limite dynamique depassee ({_axis_label(axis)})"
     if status == TrajectoryComputationStatus.NO_COMMON_ALLOWED_CONFIGURATION:
         return "aucune configuration autorisee commune"
     if status == TrajectoryComputationStatus.FORBIDDEN_CONFIGURATION:
         return "configuration interdite"
-    if status == TrajectoryComputationStatus.CONFIGURATION_DISCONTINUITY:
-        return "discontinuite de configuration detectee"
     return status.value
 
 
@@ -35,12 +33,10 @@ def sample_error_to_message(error_code: TrajectorySampleErrorCode, axis: int | N
         return "valide"
     if error_code == TrajectorySampleErrorCode.POINT_UNREACHABLE:
         return "point inatteignable"
-    if error_code == TrajectorySampleErrorCode.OVER_SPEED_LIMIT:
-        return f"limite de vitesse depassee ({_axis_label(axis)})"
+    if error_code == TrajectorySampleErrorCode.OVER_DYNAMIC_LIMIT:
+        return f"limite dynamique depassee ({_axis_label(axis)})"
     if error_code == TrajectorySampleErrorCode.FORBIDDEN_CONFIGURATION:
         return "configuration interdite"
-    if error_code == TrajectorySampleErrorCode.CONFIGURATION_DISCONTINUITY:
-        return "discontinuite de configuration detectee"
     return error_code.value
 
 
@@ -68,8 +64,7 @@ def build_segment_issue_messages(segment: SegmentResult, segment_index: int) -> 
     ordered_codes = [
         TrajectorySampleErrorCode.POINT_UNREACHABLE,
         TrajectorySampleErrorCode.FORBIDDEN_CONFIGURATION,
-        TrajectorySampleErrorCode.CONFIGURATION_DISCONTINUITY,
-        TrajectorySampleErrorCode.OVER_SPEED_LIMIT,
+        TrajectorySampleErrorCode.OVER_DYNAMIC_LIMIT,
     ]
     for code in ordered_codes:
         if code not in first_axis_by_code:

@@ -75,12 +75,10 @@ class TrajectoryBuilder:
     def _status_from_sample_error(error_code: TrajectorySampleErrorCode) -> TrajectoryComputationStatus:
         if error_code == TrajectorySampleErrorCode.POINT_UNREACHABLE:
             return TrajectoryComputationStatus.POINT_UNREACHABLE
-        if error_code == TrajectorySampleErrorCode.OVER_SPEED_LIMIT:
-            return TrajectoryComputationStatus.OVER_SPEED_LIMIT
+        if error_code == TrajectorySampleErrorCode.OVER_DYNAMIC_LIMIT:
+            return TrajectoryComputationStatus.OVER_DYNAMIC_LIMIT
         if error_code == TrajectorySampleErrorCode.FORBIDDEN_CONFIGURATION:
             return TrajectoryComputationStatus.FORBIDDEN_CONFIGURATION
-        if error_code == TrajectorySampleErrorCode.CONFIGURATION_DISCONTINUITY:
-            return TrajectoryComputationStatus.CONFIGURATION_DISCONTINUITY
         return TrajectoryComputationStatus.SUCCESS
 
     @staticmethod
@@ -266,6 +264,20 @@ class TrajectoryBuilder:
             self._joint_weights.append(1.0)
         return self._joint_weights
 
+    @staticmethod
+    def _normalize_positive_limits(values: list[float], default: float = 0.0) -> list[float]:
+        out = [max(0.0, float(v)) for v in values[:6]]
+        while len(out) < 6:
+            out.append(max(0.0, float(default)))
+        return out
+
+    def _get_axis_dynamic_limits(self) -> tuple[list[float], list[float], list[float]]:
+        # Dynamic checks must always rely on robot-model limits (no per-segment override).
+        speed_limits = TrajectoryBuilder._normalize_positive_limits(self.robot_model.get_axis_speed_limits())
+        accel_limits = TrajectoryBuilder._normalize_positive_limits(self.robot_model.get_axis_estimated_accel_limits())
+        jerk_limits = TrajectoryBuilder._normalize_positive_limits(self.robot_model.get_axis_jerk_limits())
+        return speed_limits, accel_limits, jerk_limits
+
     def _resolve_effective_allowed_configs(self, segment: TrajectorySegment) -> set[MgiConfigKey]:
         from_allowed = set(segment.from_keypoint.allowed_configs)
         to_allowed = set(segment.to_keypoint.allowed_configs)
@@ -373,6 +385,50 @@ class TrajectoryBuilder:
             sample.articular_velocity[axis] = vel
             sample.articular_acceleration[axis] = (vel - previous_sample.articular_velocity[axis]) / dt
 
+    def _apply_dynamic_limits_if_needed(
+        self,
+        sample: TrajectorySample,
+        previous_sample: TrajectorySample | None,
+        speed_limits_deg_s: list[float],
+        accel_limits_deg_s2: list[float],
+        jerk_limits_deg_s3: list[float],
+    ) -> None:
+        if sample.error_code != TrajectorySampleErrorCode.NONE:
+            return
+        if previous_sample is None:
+            return
+        if not sample.reachable or not previous_sample.reachable:
+            return
+
+        dt = sample.time - previous_sample.time
+        if dt <= self._EPS:
+            dt = self.sample_dt_s
+
+        eps = 1e-6
+        for axis in range(6):
+            vel = abs(float(sample.articular_velocity[axis]))
+            if vel > float(speed_limits_deg_s[axis]) + eps:
+                sample.error_code = TrajectorySampleErrorCode.OVER_DYNAMIC_LIMIT
+                sample.error_axis = axis
+                return
+
+            acc = abs(float(sample.articular_acceleration[axis]))
+            if acc > float(accel_limits_deg_s2[axis]) + eps:
+                sample.error_code = TrajectorySampleErrorCode.OVER_DYNAMIC_LIMIT
+                sample.error_axis = axis
+                return
+
+            jerk_limit = float(jerk_limits_deg_s3[axis])
+            if jerk_limit <= self._EPS:
+                continue
+            jerk = abs(
+                (float(sample.articular_acceleration[axis]) - float(previous_sample.articular_acceleration[axis])) / dt
+            )
+            if jerk > jerk_limit + eps:
+                sample.error_code = TrajectorySampleErrorCode.OVER_DYNAMIC_LIMIT
+                sample.error_axis = axis
+                return
+
     @staticmethod
     def _resolve_error_for_missing_selected_solution(
         mgi_result: MgiResult,
@@ -390,45 +446,6 @@ class TrajectoryBuilder:
         if has_any_valid and not has_allowed_valid:
             return TrajectorySampleErrorCode.FORBIDDEN_CONFIGURATION
         return TrajectorySampleErrorCode.POINT_UNREACHABLE
-
-    @staticmethod
-    def _resolve_configuration_discontinuity_axis(
-        sample: TrajectorySample,
-        previous_sample: TrajectorySample | None,
-    ) -> int | None:
-        if previous_sample is None:
-            return None
-        if not sample.reachable or not previous_sample.reachable:
-            return None
-        if sample.configuration is None or previous_sample.configuration is None:
-            return None
-        if sample.configuration == previous_sample.configuration:
-            return None
-
-        biggest_jump_axis = 0
-        biggest_jump = -1.0
-        for axis in range(6):
-            jump = abs(float(sample.joints[axis]) - float(previous_sample.joints[axis]))
-            if jump > biggest_jump:
-                biggest_jump = jump
-                biggest_jump_axis = axis
-        return biggest_jump_axis
-
-    def _flag_configuration_discontinuity_if_any(
-        self,
-        sample: TrajectorySample,
-        previous_sample: TrajectorySample | None,
-    ) -> None:
-        if sample.error_code != TrajectorySampleErrorCode.NONE:
-            return
-        discontinuity_axis = TrajectoryBuilder._resolve_configuration_discontinuity_axis(
-            sample,
-            previous_sample,
-        )
-        if discontinuity_axis is None:
-            return
-        sample.error_code = TrajectorySampleErrorCode.CONFIGURATION_DISCONTINUITY
-        sample.error_axis = discontinuity_axis
 
     def select_config(
         self,
@@ -454,6 +471,8 @@ class TrajectoryBuilder:
             if dt <= self._EPS:
                 dt = self.sample_dt_s
         self._update_articular_dynamics(sample, previous_sample, dt)
+        # speed_limits, accel_limits, jerk_limits = self._get_axis_dynamic_limits()
+        # self._apply_dynamic_limits_if_needed(sample, previous_sample, speed_limits, accel_limits, jerk_limits)
         return True
 
     def compute_trajectory(
@@ -573,7 +592,7 @@ class TrajectoryBuilder:
         # 4) Build synchronized timing from speed limits and requested PTP speed percent.
         required_duration_s, effective_speed_limits = self._resolve_PTP_duration(segment, joint_deltas_deg)
         if required_duration_s is None or effective_speed_limits is None:
-            result.status = TrajectoryComputationStatus.OVER_SPEED_LIMIT
+            result.status = TrajectoryComputationStatus.OVER_DYNAMIC_LIMIT
             result.last_time = float(start_time_s)
             return result
 
@@ -594,7 +613,6 @@ class TrajectoryBuilder:
             joint_deltas_deg,
             sample_allowed_configs,
             config_identifier,
-            effective_speed_limits,
             result,
         )
         return result
@@ -674,6 +692,7 @@ class TrajectoryBuilder:
         
         result.in_direction = t_in
         result.out_direction = t_out
+        speed_limits_deg_s, accel_limits_deg_s2, jerk_limits_deg_s3 = self._get_axis_dynamic_limits()
 
         dA = TrajectoryBuilder._shortest_angle_delta_deg(from_pose[3], to_pose[3])
         dB = TrajectoryBuilder._shortest_angle_delta_deg(from_pose[4], to_pose[4])
@@ -696,7 +715,10 @@ class TrajectoryBuilder:
                 xyz,
                 orientation_abc,
                 previous_sample,
-                effective_allowed_configs
+                effective_allowed_configs,
+                speed_limits_deg_s,
+                accel_limits_deg_s2,
+                jerk_limits_deg_s3,
             )
             result.samples.append(sample)
             TrajectoryBuilder._update_joint_stats(result, sample)
@@ -718,6 +740,9 @@ class TrajectoryBuilder:
         orientation_abc: list[float],
         previous_sample: TrajectorySample | None,
         allowed_configs: set[MgiConfigKey],
+        speed_limits_deg_s: list[float],
+        accel_limits_deg_s2: list[float],
+        jerk_limits_deg_s3: list[float],
     ) -> TrajectorySample:
         sample = TrajectorySample()
         sample.time = float(time_s)
@@ -787,7 +812,13 @@ class TrajectoryBuilder:
         )
 
         self._update_articular_dynamics(sample, previous_sample, dt)
-        self._flag_configuration_discontinuity_if_any(sample, previous_sample)
+        # self._apply_dynamic_limits_if_needed(
+        #     sample,
+        #     previous_sample,
+        #     speed_limits_deg_s,
+        #     accel_limits_deg_s2,
+        #     jerk_limits_deg_s3,
+        # )
         return sample
 
     def _build_sample_from_ptp_joints(
@@ -798,6 +829,8 @@ class TrajectoryBuilder:
         allowed_configs: set[MgiConfigKey],
         config_identifier: ConfigurationIdentifier,
         speed_limits_deg_s: list[float],
+        accel_limits_deg_s2: list[float],
+        jerk_limits_deg_s3: list[float],
     ) -> TrajectorySample:
         # A) Create base sample payload from joint state at current time.
         sample = TrajectorySample()
@@ -878,16 +911,13 @@ class TrajectoryBuilder:
             sample.cartesian_acceleration[2],
         )
         self._update_articular_dynamics(sample, previous_sample, dt)
-        self._flag_configuration_discontinuity_if_any(sample, previous_sample)
-
-        # D) Enforce per-axis speed limits (velocity-only constraints for now).
-        if sample.error_code == TrajectorySampleErrorCode.NONE:
-            for axis in range(6):
-                if abs(sample.articular_velocity[axis]) <= speed_limits_deg_s[axis] + 1e-6:
-                    continue
-                sample.error_code = TrajectorySampleErrorCode.OVER_SPEED_LIMIT
-                sample.error_axis = axis
-                break
+        # self._apply_dynamic_limits_if_needed(
+        #     sample,
+        #     previous_sample,
+        #     speed_limits_deg_s,
+        #     accel_limits_deg_s2,
+        #     jerk_limits_deg_s3,
+        # )
 
         return sample
 
@@ -900,14 +930,16 @@ class TrajectoryBuilder:
         joint_deltas_deg: list[float],
         effective_allowed_configs: set[MgiConfigKey],
         config_identifier: ConfigurationIdentifier,
-        effective_speed_limits: list[float],
         result: SegmentResult,
     ):
+        speed_limits, accel_limits, jerk_limits = self._get_axis_dynamic_limits()
+
         # This loop only orchestrates sampling:
         # - evaluate the joint law,
         # - build one sample,
         # - append and update segment-level aggregates.
         previous_generated_sample = previous_sample
+
         for i in range(1, intervals + 1):
             time_s = start_time_s + i * self.sample_dt_s
 
@@ -921,7 +953,9 @@ class TrajectoryBuilder:
                 previous_sample=previous_generated_sample,
                 allowed_configs=effective_allowed_configs,
                 config_identifier=config_identifier,
-                speed_limits_deg_s=effective_speed_limits,
+                speed_limits_deg_s=speed_limits,
+                accel_limits_deg_s2=accel_limits,
+                jerk_limits_deg_s3=jerk_limits,
             )
 
             # Segment aggregation is intentionally separated from sample creation.
