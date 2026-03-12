@@ -8,6 +8,7 @@ import os
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
@@ -47,6 +48,7 @@ class TrajectoryConfigWidget(QWidget):
     hideRobotGhostRequested = pyqtSignal()
     updateRobotGhostRequested = pyqtSignal(object)
     goToRequested = pyqtSignal(int)
+    timeSmoothingChanged = pyqtSignal(bool)
 
     def __init__(self, robot_model: RobotModel, parent: QWidget = None) -> None:
         super().__init__(parent)
@@ -61,6 +63,12 @@ class TrajectoryConfigWidget(QWidget):
         self.btn_move_down = QPushButton("Descendre")
         self.btn_import = QPushButton("Importer")
         self.btn_export = QPushButton("Exporter")
+        self.cb_smooth_time = QCheckBox("Lisser le temps (cubic_transition)")
+        self.cb_smooth_time.setChecked(True)
+        self.cb_smooth_time.setToolTip(
+            "Active smooth_t3 = cubic_transition(linear_t). "
+            "Desactive smooth_t3 = linear_t."
+        )
 
         self._keypoints: list[TrajectoryKeypoint] = []
         self._active_dialog: TrajectoryKeypointDialog | None = None
@@ -81,6 +89,11 @@ class TrajectoryConfigWidget(QWidget):
         title = QLabel("Configuration de la trajectoire")
         title.setStyleSheet("font-size: 14px; font-weight: bold;")
         layout.addWidget(title)
+
+        options_row = QHBoxLayout()
+        options_row.addWidget(self.cb_smooth_time)
+        options_row.addStretch()
+        layout.addLayout(options_row)
 
         self.keypoints_table.setHorizontalHeaderLabels([
             "#", "Cible", "Mode", "Vitesse", "J1 / X", "J2 / Y", "J3 / Z", "J4 / A", "J5 / B", "J6 / C", "Configs"
@@ -121,6 +134,7 @@ class TrajectoryConfigWidget(QWidget):
         self.btn_move_down.clicked.connect(self._on_move_down_clicked)
         self.btn_import.clicked.connect(self._on_import_clicked)
         self.btn_export.clicked.connect(self._on_export_clicked)
+        self.cb_smooth_time.toggled.connect(self._on_time_smoothing_toggled)
         self.keypoints_table.itemSelectionChanged.connect(self._on_table_selection_changed)
 
     def _emit_keypoints_changed(self) -> None:
@@ -137,7 +151,21 @@ class TrajectoryConfigWidget(QWidget):
     def _set_editing_active(self, active: bool) -> None:
         self._is_editing_active = active
         self.keypoints_table.setEnabled(not active)
+        self.cb_smooth_time.setEnabled(not active)
         self._update_buttons_state()
+
+    def _on_time_smoothing_toggled(self, checked: bool) -> None:
+        self.timeSmoothingChanged.emit(bool(checked))
+
+    def is_time_smoothing_enabled(self) -> bool:
+        return self.cb_smooth_time.isChecked()
+
+    def set_time_smoothing_enabled(self, enabled: bool, emit_signal: bool = False) -> None:
+        self.cb_smooth_time.blockSignals(True)
+        self.cb_smooth_time.setChecked(bool(enabled))
+        self.cb_smooth_time.blockSignals(False)
+        if emit_signal:
+            self.timeSmoothingChanged.emit(self.cb_smooth_time.isChecked())
 
     def _update_buttons_state(self) -> None:
         if self._is_editing_active:
@@ -380,14 +408,21 @@ class TrajectoryConfigWidget(QWidget):
         try:
             with open(path, "r", encoding="utf-8") as f:
                 payload = json.load(f)
-            raw_keypoints = payload.get("keypoints") if isinstance(payload, dict) else payload
+            if isinstance(payload, dict):
+                raw_keypoints = payload.get("keypoints")
+                smooth_time_enabled = bool(payload.get("smooth_time_enabled", True))
+            else:
+                raw_keypoints = payload
+                smooth_time_enabled = True
             if not isinstance(raw_keypoints, list):
                 raise ValueError("Format invalide: liste de keypoints introuvable.")
-            self._keypoints = [TrajectoryKeypoint.from_dict(item) for item in raw_keypoints]
+            parsed_keypoints = [TrajectoryKeypoint.from_dict(item) for item in raw_keypoints]
         except Exception as exc:
             QMessageBox.warning(self, "Import trajectoire", f"Impossible d'importer le fichier.\n{exc}")
             return
 
+        self._keypoints = parsed_keypoints
+        self.set_time_smoothing_enabled(smooth_time_enabled, emit_signal=False)
         self._refresh_table()
         self.keypoints_table.clearSelection()
         self._emit_selection_changed()
@@ -410,6 +445,7 @@ class TrajectoryConfigWidget(QWidget):
         payload = {
             "format": "calibrax_trajectory_keypoints",
             "version": 1,
+            "smooth_time_enabled": self.is_time_smoothing_enabled(),
             "keypoints": [keypoint.to_dict() for keypoint in self._keypoints],
         }
         try:

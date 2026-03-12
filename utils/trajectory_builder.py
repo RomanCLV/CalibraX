@@ -30,13 +30,18 @@ class TrajectoryBuilder:
         robot_model: RobotModel,
         behavior: TrajectoryBuilderBehavior = TrajectoryBuilderBehavior.CONTINUE_ON_ERROR,
         sample_dt_s: float = DEFAULT_SAMPLE_DT_S,
+        smooth_time_enabled: bool = True,
     ) -> None:
         self.robot_model = robot_model
         self.behavior = behavior
         self.sample_dt_s = sample_dt_s if sample_dt_s > 0.0 else TrajectoryBuilder.DEFAULT_SAMPLE_DT_S
+        self.smooth_time_enabled = bool(smooth_time_enabled)
         self._working_mgi_solver: MGI | None = None
         self._robot_allowed_configs: set[MgiConfigKey] | None = None
         self._joint_weights: list[float] | None = None
+
+    def set_time_smoothing_enabled(self, enabled: bool) -> None:
+        self.smooth_time_enabled = bool(enabled)
 
     @staticmethod
     def linear_speed_mps_to_mmps(speed_mps: float) -> float:
@@ -702,7 +707,9 @@ class TrajectoryBuilder:
         for i in range(1, intervals + 1):
             time_s = start_time_s + i * self.sample_dt_s
             linear_t = i / intervals
-            smooth_t3, smooth_t5 = math_utils.pair_cubic_quintic_transition(linear_t)
+            # smooth_t3, smooth_t5 = math_utils.pair_cubic_quintic_transition(linear_t)
+            smooth_t3 = math_utils.cubic_transition(linear_t) if self.smooth_time_enabled else linear_t
+            smooth_t5 = math_utils.quintic_transition(linear_t)
             xyz = coeffs.point(smooth_t3)
             orientation_abc = [
                 TrajectoryBuilder._wrap_angle_deg(from_pose[3] + dA * smooth_t5),
