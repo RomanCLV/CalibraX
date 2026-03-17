@@ -7,6 +7,7 @@ from PyQt6.QtGui import QColor, QBrush
 
 from widgets.cartesian_control_view.mgi_configuration_selector_widget import MgiConfigurationSelectorWidget
 from widgets.cartesian_control_view.mgi_joint_weights_widget import MgiJointWeightsWidget
+from widgets.cartesian_control_view.mgi_jacobien_widget import MgiJacobienWidget
 
 from utils.mgi import (
     MgiResult,
@@ -14,6 +15,7 @@ from utils.mgi import (
     MgiConfigKey,
     MgiResultStatus
 )
+from utils.mgi_jacobien import MgiJacobienParams, MgiJacobienResultat
 
 # ------------------------------------------------------------
 # Helpers visuels
@@ -42,6 +44,8 @@ class MgiSolutionsWidget(QWidget):
     solution_selected = pyqtSignal(MgiConfigKey)
     allowed_configs_changed = pyqtSignal()
     weights_changed = pyqtSignal(list)
+    jacobien_enabled_changed = pyqtSignal(bool)
+    jacobien_params_changed = pyqtSignal()
 
     def __init__(self, parent: QWidget=None):
         super().__init__(parent)
@@ -61,13 +65,17 @@ class MgiSolutionsWidget(QWidget):
         self._config_selector = MgiConfigurationSelectorWidget(self._allowed_configs)
         self._weights_selector = MgiJointWeightsWidget(self._joint_weights)
 
+        self._jacobien_tab = QWidget()
+
         self._init_solutions_tab()
         self._init_filters_tab()
         self._init_weights_tab()
+        self._init_jacobien_tab()
 
         self._tabs.addTab(self._solutions_tab, "Solutions")
         self._tabs.addTab(self._filters_tab, "Configurations acceptées")
         self._tabs.addTab(self._weights_tab, "Poids des joints")
+        self._tabs.addTab(self._jacobien_tab, "MGI Optimisé")
 
         layout = QVBoxLayout(self)
         layout.addWidget(self._tabs)
@@ -224,3 +232,32 @@ class MgiSolutionsWidget(QWidget):
         """
         self._joint_weights = weights
         self.weights_changed.emit(weights)
+
+    # --------------------------------------------------------
+    # Onglet MGI Optimisé (Jacobienne)
+    # --------------------------------------------------------
+
+    def _init_jacobien_tab(self):
+        layout = QVBoxLayout(self._jacobien_tab)
+
+        self._jacobien_widget = MgiJacobienWidget()
+        self._jacobien_widget.enabled_changed.connect(self.jacobien_enabled_changed)
+        self._jacobien_widget.params_changed.connect(self.jacobien_params_changed)
+
+        layout.addWidget(self._jacobien_widget)
+
+    def get_jacobien_widget(self) -> MgiJacobienWidget:
+        """Retourne le widget de configuration du solveur MGI Jacobienne."""
+        return self._jacobien_widget
+
+    def is_jacobien_enabled(self) -> bool:
+        """Retourne True si le solveur MGI Jacobienne est activé."""
+        return self._jacobien_widget.is_enabled()
+
+    def get_jacobien_params(self) -> MgiJacobienParams:
+        """Retourne les paramètres actuels du solveur MGI Jacobienne."""
+        return self._jacobien_widget.get_params()
+
+    def set_jacobien_resultat(self, resultat: MgiJacobienResultat | None):
+        """Met à jour l'affichage de convergence du solveur MGI Jacobienne."""
+        self._jacobien_widget.set_resultat(resultat)

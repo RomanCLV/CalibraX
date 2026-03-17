@@ -254,6 +254,26 @@ class RobotModel(QObject):
     # RÉGION: Inverse Kinematics
     # ====================================================================
 
+    def compute_ik_optimise(self, target: list[float], q_initial: list[float], params=None):
+        """
+        Solveur MGI optimisé par la Jacobienne inverse (Levenberg-Marquardt).
+
+        Affine itérativement q_initial en utilisant le MGD CORRIGÉ pour tenir compte
+        de toutes les corrections de calibration (Tx, Ty, Tz, Rx, Ry, Rz par joint).
+
+        Args:
+            target:    Pose cible [x, y, z, a, b, c] en mm et degrés (ZYX Euler)
+            q_initial: Estimation initiale en degrés (issue du MGI analytique)
+            params:    MgiJacobienParams (None → valeurs par défaut)
+
+        Returns:
+            MgiJacobienResultat avec joints raffinés et métriques de convergence
+        """
+        from utils.mgi_jacobien import mgi_jacobien, MgiJacobienParams
+        if params is None:
+            params = MgiJacobienParams()
+        return mgi_jacobien(target, self, q_initial, params)
+
     def compute_ik(self, x: float, y: float, z: float, a: float, b: float, c: float):
         self.MGI_solver.set_q1ValueIfSingularityQ1(self.joint_values[0])
         self.MGI_solver.set_q4ValueIfSingularityQ5(self.joint_values[4])

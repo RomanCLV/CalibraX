@@ -3,6 +3,7 @@ from PyQt6.QtCore import QObject
 from models.robot_model import RobotModel
 from widgets.cartesian_control_view.mgi_solutions_widget import MgiSolutionsWidget
 from utils.mgi import MgiResult, MgiConfigKey, MgiResultStatus
+from utils.mgi_jacobien import MgiJacobienResultat
 
 
 class MgiSolutionsController(QObject):
@@ -72,4 +73,8 @@ class MgiSolutionsController(QObject):
     def display_mgi_result(self, mgi_result: MgiResult, selected_key: MgiConfigKey|None):
         """Met à jour le widget avec le résultat MGI actuel du modèle"""
         self.mgi_solutions_widget.set_mgi_result(mgi_result, selected_key)
+
+    def afficher_resultat_jacobien(self, resultat: MgiJacobienResultat | None):
+        """Met à jour l'affichage de convergence du solveur MGI Jacobienne."""
+        self.mgi_solutions_widget.set_jacobien_resultat(resultat)
     
