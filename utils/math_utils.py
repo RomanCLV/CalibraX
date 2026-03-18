@@ -185,6 +185,36 @@ def rotation_matrix_to_euler_zyx(R):
         A = np.atan2(R[1, 0], R[0, 0])
     return np.degrees([A, B, C])
 
+def rotation_matrix_to_fixed_xyz(R):
+    """Extrait les angles Fixed XYZ (en degrés) d'une matrice de rotation 3x3
+    
+    Convention Fixed XYZ: R = Rz * Ry * Rx (rotations sur axes fixes)
+    
+    Args:
+        R: Matrice de rotation 3x3
+    
+    Returns:
+        Array [Rx, Ry, Rz] en degrés
+    """
+    # Ry = arcsin(-R[2, 0])
+    Ry = np.arcsin(-R[2, 0])
+    
+    # Vérifier si cos(Ry) est proche de zéro (singularité)
+    cos_ry = np.cos(Ry)
+    
+    if np.abs(cos_ry) > 1e-6:  # Pas de singularité
+        Rx = np.arctan2(R[2, 1], R[2, 2])
+        Rz = np.arctan2(R[1, 0], R[0, 0])
+    else:  # Singularité: Ry = ±90°
+        Rx = 0  # Conventionnellement, on fixe Rx = 0
+        if cos_ry > 0:  # Ry = 90°
+            Rz = np.arctan2(-R[0, 1], R[1, 1])
+        else:  # Ry = -90°
+            Rz = np.arctan2(R[0, 1], R[1, 1])
+    
+    return np.degrees([Rx, Ry, Rz])
+
+
 # ============================================================================
 # RÉGION: Transitions
 # ============================================================================
