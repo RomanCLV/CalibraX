@@ -178,60 +178,6 @@ class MgiConfigurationFilter:
     def allow_all() -> 'MgiConfigurationFilter':
         """Crée un filtre qui autorise toutes les configurations"""
         return MgiConfigurationFilter(None)
-    
-    @staticmethod
-    def allow_only_front() -> 'MgiConfigurationFilter':
-        """Autorise uniquement les configurations Front"""
-        return MgiConfigurationFilter(set(FRONT_CONFIG_KEYS))
-    
-    @staticmethod
-    def allow_only_back() -> 'MgiConfigurationFilter':
-        """Autorise uniquement les configurations Back"""
-        return MgiConfigurationFilter(set(BACK_CONFIG_KEYS))
-    
-    @staticmethod
-    def allow_only_up() -> 'MgiConfigurationFilter':
-        """Autorise uniquement les configurations Up"""
-        return MgiConfigurationFilter(set(UP_CONFIG_KEYS))
-    
-    @staticmethod
-    def allow_only_down() -> 'MgiConfigurationFilter':
-        """Autorise uniquement les configurations Down"""
-        return MgiConfigurationFilter(set(DOWN_CONFIG_KEYS))
-    
-    @staticmethod
-    def allow_no_flip() -> 'MgiConfigurationFilter':
-        """Autorise uniquement les configurations sans Flip"""
-        return MgiConfigurationFilter(set(NO_FLIP_CONFIG_KEYS))
-    
-    @staticmethod
-    def allow_only_flip() -> 'MgiConfigurationFilter':
-        """Autorise uniquement les configurations avec Flip"""
-        return MgiConfigurationFilter(set(FLIP_CONFIG_KEYS))
-    
-    @staticmethod
-    def allow_custom(config_keys: list[MgiConfigKey]) -> 'MgiConfigurationFilter':
-        """Autorise une liste personnalisée de configurations"""
-        return MgiConfigurationFilter(set(config_keys))
-    
-    @staticmethod
-    def combine_filters(*filters: 'MgiConfigurationFilter') -> 'MgiConfigurationFilter':
-        """Combine plusieurs filtres (intersection des configurations autorisées)"""
-        if not filters:
-            return MgiConfigurationFilter.allow_all()
-        
-        # Si un filtre autorise tout, on l'ignore
-        active_filters = [f for f in filters if f.allowed_configs is not None]
-        
-        if not active_filters:
-            return MgiConfigurationFilter.allow_all()
-        
-        # Intersection de tous les ensembles
-        allowed = set(active_filters[0].allowed_configs)
-        for f in active_filters[1:]:
-            allowed &= f.allowed_configs
-        
-        return MgiConfigurationFilter(allowed)
 
 class MgiParams:
     def __init__(self, 
@@ -290,22 +236,10 @@ class MgiResultItem():
     def setQ3(self, q3: float):
         self.joints[2] = q3
     
-    def setQ4(self, q4: float):
-        self.joints[3] = q4
-    
-    def setQ5(self, q5: float):
-        self.joints[4] = q5
-    
-    def setQ6(self, q6: float):
-        self.joints[5] = q6
-    
     def setQ456(self, j4: float, j5: float, j6: float):
         self.joints[3] = j4
         self.joints[4] = j5
         self.joints[5] = j6
-    
-    def invert_joints(self, invert_table: list[bool]):
-        self.joints = MGI._joints_invert(self.joints, invert_table)
 
     def to_radians(self):
         if not self.radians:
@@ -336,18 +270,6 @@ class MgiResult():
 
     def get_solution_raw(self, key: MgiConfigKey) -> MgiResultItem:
         return self.solutions[key]
-
-    # Backward-compatible alias for existing callers.
-    def get_solution(self, key: MgiConfigKey) -> MgiResultItem:
-        return self.get_solution_raw(key)
-    
-    def set_solution_joints(self, key: MgiConfigKey, joints: list[float]):
-        self.solutions[key].joints = joints
-
-    def clear_solutions_joints(self):
-        for key in self.solutions:
-            self.solutions[key].clear_joints()
-        self.expanded_solutions = []
     
     def get_front_solutions(self) -> dict[MgiConfigKey, MgiResultItem]:
         return {key: self.solutions[key] for key in FRONT_CONFIG_KEYS}
@@ -472,18 +394,6 @@ class MgiResult():
     def to_radians(self):
         for sol in self._iter_all_solution_items():
             sol.to_radians()
-    
-    @property
-    def has_valid_solution(self) -> bool:
-        if any(sol.status == MgiResultStatus.VALID for sol in self.expanded_solutions):
-            return True
-        return any(sol.status == MgiResultStatus.VALID for sol in self.solutions.values())
-
-    @property
-    def valid_count(self) -> int:
-        if self.expanded_solutions:
-            return sum(1 for sol in self.expanded_solutions if sol.status == MgiResultStatus.VALID)
-        return sum(1 for sol in self.solutions.values() if sol.status == MgiResultStatus.VALID)
 
     @staticmethod
     def _joints_invert(joints, invert_table):
@@ -500,25 +410,6 @@ class MgiResult():
     def get_valid_solutions(self) -> dict[MgiConfigKey, MgiResultItem]:
         """Retourne uniquement les solutions VALID"""
         return {key: sol for key, sol in self.solutions.items() if sol.status == MgiResultStatus.VALID}
-
-    def get_best_solution(self, prefer_front: bool = True, prefer_up: bool = True, prefer_no_flip: bool = True) -> tuple[MgiConfigKey, MgiResultItem] | None:
-        """Retourne la meilleure solution selon les préférences."""
-        valid = self.get_valid_solutions()
-        if not valid:
-            return None
-
-        def score(key: MgiConfigKey):
-            s = 0
-            if prefer_front and key in FRONT_CONFIG_KEYS:
-                s += 4
-            if prefer_up and key in UP_CONFIG_KEYS:
-                s += 2
-            if prefer_no_flip and key in NO_FLIP_CONFIG_KEYS:
-                s += 1
-            return s
-
-        best_key = max(valid.keys(), key=score)
-        return best_key, valid[best_key]
 
     def get_best_solution_from_current(self,
                                        current_joints_rad: list[float],
@@ -620,9 +511,6 @@ class MGI():
         self.defaultQ4RadSingularityValue = 0.0
         self.defaultQ6RadSingularityValue = 0.0
         self._resolution_vars = MGI.ResolutionVariables()
-
-    def set_params(self, params: MgiGeometricParams):
-        self.params = params
 
     def set_invert_table(self, invert_table: list[bool]):
         self.params.invert_table = invert_table
@@ -888,18 +776,6 @@ class MGI():
     def _tryAtan2(sinq: float, cosq: float):
         """Essaie de calculer atan2(sinq, cosq) si sinq != 0 et cosq != 0, retourne (True, 0) si singularité, (False, value) sinon."""
         return ((abs(sinq) < EPSILON and abs(cosq) < EPSILON), atan2(sinq, cosq))
-
-    @staticmethod
-    def _joints_invert(joints, invert_table):
-        """Inversion des joints selon une table de correspondance"""
-        inverted_joints = []
-        if (len(joints) != len(invert_table)):
-            raise ValueError("La taille de la table d'inversion ne correspond pas au nombre de joints.")
-        
-        for i in range(len(joints)):
-            inverted_joints.append(-joints[i] if invert_table[i] else joints[i])
-
-        return inverted_joints
 
     def _compute_q1(self, x: float, y: float):
         """
@@ -1403,3 +1279,4 @@ class MGI():
         print("B{}: {:.3f} deg".format(lblSuffix, b))
         print("C{}: {:.3f} deg".format(lblSuffix, c))
         print()
+
