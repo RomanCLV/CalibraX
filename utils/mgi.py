@@ -6,6 +6,8 @@ from itertools import product
 from typing import Set, override
 
 EPSILON = 1e-6
+# Tolerance (rad) for considering Q3A and Q3B as the same elbow branch.
+Q3_SINGULARITY_EPS = 1e-4
 
 DEFAULT_AXIS_LIMITS = [
         (-170, 170),  # q1
@@ -687,6 +689,14 @@ class MGI():
         return angle + pi if angle <= 0 else angle - pi
 
     @staticmethod
+    def _shortest_angle_abs_diff(a: float, b: float) -> float:
+        return abs(atan2(sin(a - b), cos(a - b)))
+
+    @staticmethod
+    def _is_q3_singularity(q3_a: float, q3_b: float) -> bool:
+        return MGI._shortest_angle_abs_diff(q3_a, q3_b) <= Q3_SINGULARITY_EPS
+
+    @staticmethod
     def _compute_tool_to_flange_coordinates(x: float, y: float, z: float, 
                                 a_deg: float, b_deg: float, c_deg: float, 
                                 tool: RobotTool|None):
@@ -1077,6 +1087,11 @@ class MGI():
             for result in results.get_front_solutions().values():
                 result.status = MgiResultStatus.UNREACHABLE
         else:
+            singularity_q3_front = MGI._is_q3_singularity(q3Aa, q3Ab)
+            if singularity_q3_front and verbose:
+                print("Singularite en Q3 - Configuration Front")
+                print()
+
             if self.params.configuration_identifier.is_up(q3Aa):
                 q2Up, q2Down = q2Aa, q2Ab
                 q3Up, q3Down = q3Aa, q3Ab
@@ -1091,6 +1106,8 @@ class MGI():
                 else:
                     result_value.setQ2(q2Down)
                     result_value.setQ3(q3Down)
+                if singularity_q3_front:
+                    result_value.j3Singularity = True
 
         # Back solutions
 
@@ -1105,6 +1122,11 @@ class MGI():
             for result in results.get_back_solutions().values():
                 result.status = MgiResultStatus.UNREACHABLE
         else:
+            singularity_q3_back = MGI._is_q3_singularity(q3Aa, q3Ab)
+            if singularity_q3_back and verbose:
+                print("Singularite en Q3 - Configuration Back")
+                print()
+
             if self.params.configuration_identifier.is_up(q3Aa):
                 q2Up, q2Down = q2Aa, q2Ab
                 q3Up, q3Down = q3Aa, q3Ab
@@ -1119,6 +1141,8 @@ class MGI():
                 else:
                     result_value.setQ2(q2Down)
                     result_value.setQ3(q3Down)
+                if singularity_q3_back:
+                    result_value.j3Singularity = True
 
     def _feed_q4_q5_q6(self, results: MgiResult, verbose=False):
         
