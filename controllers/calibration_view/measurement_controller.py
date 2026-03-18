@@ -187,8 +187,14 @@ class MeasurementController(QObject):
         self.measurement_widget.clear_measurements()
         self._update_tcp_offsets_from_selection()
     
-    def _invert_rigid_transform(self, T: np.ndarray) -> np.ndarray:
-        """Invert a rigid transform using the transpose of its rotation."""
+    def _invert_homogeneous_transform(self, T: np.ndarray) -> np.ndarray:
+        """Invert a 4x4 rigid homogeneous transform (SE(3))."""
+        if not isinstance(T, np.ndarray) or T.shape != (4, 4):
+            raise ValueError("La matrice doit être de taille 4x4")
+
+        if not np.allclose(T[3, :], np.array([0.0, 0.0, 0.0, 1.0]), atol=1e-12):
+            raise ValueError("La matrice n'est pas une transformation homogène rigide valide")
+
         R = T[:3, :3]
         t = T[:3, 3]
         T_inv = np.eye(4)
@@ -225,7 +231,7 @@ class MeasurementController(QObject):
 
         try:
             T_ref = self._build_transform_from_measurement(ref_measurement)
-            T_ref_inv = np.linalg.inv(T_ref)
+            T_ref_inv = self._invert_homogeneous_transform(T_ref)
 
             for measurement in self.measurement_widget.measurements:
                 T = self._build_transform_from_measurement(measurement)

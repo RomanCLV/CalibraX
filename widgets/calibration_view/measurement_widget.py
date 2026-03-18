@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QLineEdit, QTreeWidget, QTreeWidgetItem,
     QTableWidget, QTableWidgetItem, QAbstractItemView, QComboBox, QHBoxLayout, QCheckBox
 )
-from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtCore import pyqtSignal, Qt, QEvent
 from PyQt6.QtGui import QFont
 import utils.math_utils as math_utils
 import math
@@ -27,6 +27,12 @@ class DHCellWidget(QWidget):
         self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.label)
 
+        self.checkbox.toggled.connect(self._update_label_style)
+        self.label.installEventFilter(self)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._update_label_style(self.checkbox.isChecked())
+
         self.setLayout(layout)
 
     def set_value(self, value: str) -> None:
@@ -43,6 +49,26 @@ class DHCellWidget(QWidget):
 
     def set_enabled_state(self, enabled: bool) -> None:
         self.setEnabled(enabled)
+
+    def _update_label_style(self, checked: bool) -> None:
+        if checked:
+            self.label.setStyleSheet("color: #ff8c00; font-weight: 700;")
+        else:
+            self.label.setStyleSheet("")
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton and self.isEnabled():
+            self.checkbox.setChecked(not self.checkbox.isChecked())
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def eventFilter(self, obj, event):
+        if obj is self.label and event.type() == QEvent.Type.MouseButtonPress:
+            if self.isEnabled() and event.button() == Qt.MouseButton.LeftButton:
+                self.checkbox.setChecked(not self.checkbox.isChecked())
+                return True
+        return super().eventFilter(obj, event)
 
 
 class MeasurementWidget(QWidget):
@@ -113,6 +139,8 @@ class MeasurementWidget(QWidget):
         self.table_me.setVerticalHeaderLabels(["Translation (mm)", "Rotation (°)", "X axis", "Y axis", "Z axis"])
         self.table_me.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.table_me.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.table_me.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.table_me.verticalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
         middle_layout.addWidget(self.table_me, 1)
         middle_layout.setStretch(1, 2)
 
@@ -143,6 +171,9 @@ class MeasurementWidget(QWidget):
         self.table_dh_measured.setVerticalHeaderLabels([f"q{i + 1}" for i in range(6)])
         self.table_dh_measured.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.table_dh_measured.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.table_dh_measured.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.table_dh_measured.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.table_dh_measured.verticalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
         self.table_dh_measured.horizontalHeader().setDefaultSectionSize(120)
 
         self.table_tcp_offsets = QTableWidget(2, 3)
@@ -150,9 +181,12 @@ class MeasurementWidget(QWidget):
         self.table_tcp_offsets.setVerticalHeaderLabels(["TCP", "Offsets"])
         self.table_tcp_offsets.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.table_tcp_offsets.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.table_tcp_offsets.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.table_tcp_offsets.verticalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
         self.table_tcp_offsets.horizontalHeader().setDefaultSectionSize(110)
 
         self._initialize_dh_cells()
+        self._freeze_dh_table_height()
 
         dh_tables_layout = QHBoxLayout()
         dh_tables_layout.addWidget(self.table_dh_measured, 3)
@@ -174,8 +208,28 @@ class MeasurementWidget(QWidget):
         buttons2_layout.addStretch(1)
         main_layout.addLayout(buttons2_layout)
 
+    def _is_dh_cell_disabled(self, row: int, col: int) -> bool:
+        # Existing locked cells
+        if row == 0 or (row == 1 and col == 3):
+            return True
+
+        # Requested locked cells:
+        # q5 -> d, r (row 4 -> col 1, 3)
+        # q6 -> d, theta, r (row 5 -> col 1, 2, 3)
+        if row == 4 and col in (1, 3):
+            return True
+        if row == 5 and col in (1, 2, 3):
+            return True
+
+        return False
+
     def _on_item_clicked(self, item: QTreeWidgetItem, column: int) -> None:
         self.repere_selected.emit(item.text(0))
+
+    def _make_centered_item(self, value: str) -> QTableWidgetItem:
+        item = QTableWidgetItem(value)
+        item.setTextAlignment(int(Qt.AlignmentFlag.AlignCenter))
+        return item
 
     def _format_value(self, value: float, decimals: int = 4) -> str:
         formatted = f"{value:.{decimals}f}"
@@ -218,17 +272,17 @@ class MeasurementWidget(QWidget):
 
         RX, RY, RZ = math.degrees(rx), math.degrees(ry), math.degrees(rz)
 
-        self.table_me.setItem(0, 0, QTableWidgetItem(self._format_value(X, 4)))
-        self.table_me.setItem(0, 1, QTableWidgetItem(self._format_value(Y, 4)))
-        self.table_me.setItem(0, 2, QTableWidgetItem(self._format_value(Z, 4)))
+        self.table_me.setItem(0, 0, self._make_centered_item(self._format_value(X, 4)))
+        self.table_me.setItem(0, 1, self._make_centered_item(self._format_value(Y, 4)))
+        self.table_me.setItem(0, 2, self._make_centered_item(self._format_value(Z, 4)))
 
-        self.table_me.setItem(1, 0, QTableWidgetItem(self._format_value(RX, 4)))
-        self.table_me.setItem(1, 1, QTableWidgetItem(self._format_value(RY, 4)))
-        self.table_me.setItem(1, 2, QTableWidgetItem(self._format_value(RZ, 4)))
+        self.table_me.setItem(1, 0, self._make_centered_item(self._format_value(RX, 4)))
+        self.table_me.setItem(1, 1, self._make_centered_item(self._format_value(RY, 4)))
+        self.table_me.setItem(1, 2, self._make_centered_item(self._format_value(RZ, 4)))
 
         for i in range(3):
             for j in range(3):
-                self.table_me.setItem(2 + i, j, QTableWidgetItem(self._format_value(delta_T[i, j], 6)))
+                self.table_me.setItem(2 + i, j, self._make_centered_item(self._format_value(delta_T[i, j], 6)))
 
         self.table_me.blockSignals(False)
 
@@ -291,29 +345,29 @@ class MeasurementWidget(QWidget):
 
                 R = Rz @ Ry @ Rx
 
-        self.table_me.setItem(0, 0, QTableWidgetItem(self._format_value(X, 4)))
-        self.table_me.setItem(0, 1, QTableWidgetItem(self._format_value(Y, 4)))
-        self.table_me.setItem(0, 2, QTableWidgetItem(self._format_value(Z, 4)))
+        self.table_me.setItem(0, 0, self._make_centered_item(self._format_value(X, 4)))
+        self.table_me.setItem(0, 1, self._make_centered_item(self._format_value(Y, 4)))
+        self.table_me.setItem(0, 2, self._make_centered_item(self._format_value(Z, 4)))
 
-        self.table_me.setItem(1, 0, QTableWidgetItem(self._format_value(A, 4)))
-        self.table_me.setItem(1, 1, QTableWidgetItem(self._format_value(B, 4)))
-        self.table_me.setItem(1, 2, QTableWidgetItem(self._format_value(C, 4)))
+        self.table_me.setItem(1, 0, self._make_centered_item(self._format_value(A, 4)))
+        self.table_me.setItem(1, 1, self._make_centered_item(self._format_value(B, 4)))
+        self.table_me.setItem(1, 2, self._make_centered_item(self._format_value(C, 4)))
 
         x_axis = R[:, 0]
         y_axis = R[:, 1]
         z_axis = R[:, 2]
 
-        self.table_me.setItem(2, 0, QTableWidgetItem(self._format_value(x_axis[0], 6)))
-        self.table_me.setItem(2, 1, QTableWidgetItem(self._format_value(x_axis[1], 6)))
-        self.table_me.setItem(2, 2, QTableWidgetItem(self._format_value(x_axis[2], 6)))
+        self.table_me.setItem(2, 0, self._make_centered_item(self._format_value(x_axis[0], 6)))
+        self.table_me.setItem(2, 1, self._make_centered_item(self._format_value(x_axis[1], 6)))
+        self.table_me.setItem(2, 2, self._make_centered_item(self._format_value(x_axis[2], 6)))
 
-        self.table_me.setItem(3, 0, QTableWidgetItem(self._format_value(y_axis[0], 6)))
-        self.table_me.setItem(3, 1, QTableWidgetItem(self._format_value(y_axis[1], 6)))
-        self.table_me.setItem(3, 2, QTableWidgetItem(self._format_value(y_axis[2], 6)))
+        self.table_me.setItem(3, 0, self._make_centered_item(self._format_value(y_axis[0], 6)))
+        self.table_me.setItem(3, 1, self._make_centered_item(self._format_value(y_axis[1], 6)))
+        self.table_me.setItem(3, 2, self._make_centered_item(self._format_value(y_axis[2], 6)))
 
-        self.table_me.setItem(4, 0, QTableWidgetItem(self._format_value(z_axis[0], 6)))
-        self.table_me.setItem(4, 1, QTableWidgetItem(self._format_value(z_axis[1], 6)))
-        self.table_me.setItem(4, 2, QTableWidgetItem(self._format_value(z_axis[2], 6)))
+        self.table_me.setItem(4, 0, self._make_centered_item(self._format_value(z_axis[0], 6)))
+        self.table_me.setItem(4, 1, self._make_centered_item(self._format_value(z_axis[1], 6)))
+        self.table_me.setItem(4, 2, self._make_centered_item(self._format_value(z_axis[2], 6)))
 
         self.table_me.blockSignals(False)
 
@@ -370,7 +424,7 @@ class MeasurementWidget(QWidget):
                     formatted_value = self._format_value(value, 4)
 
                     cell_widget = DHCellWidget()
-                    if row == 0 or (row == 1 and col == 3):
+                    if self._is_dh_cell_disabled(row, col):
                         cell_widget.set_enabled_state(False)
                     cell_widget.checkbox.stateChanged.connect(self._emit_dh_checkboxes_changed)
                     cell_widget.set_value(formatted_value)
@@ -378,7 +432,7 @@ class MeasurementWidget(QWidget):
             else:
                 for col in range(4):
                     cell_widget = DHCellWidget()
-                    if row == 0 or (row == 1 and col == 3):
+                    if self._is_dh_cell_disabled(row, col):
                         cell_widget.set_enabled_state(False)
                     cell_widget.checkbox.stateChanged.connect(self._emit_dh_checkboxes_changed)
                     cell_widget.set_value("")
@@ -408,19 +462,26 @@ class MeasurementWidget(QWidget):
 
     def _initialize_dh_cells(self) -> None:
         for row in range(self.table_dh_measured.rowCount()):
+            self.table_dh_measured.setRowHeight(row, 35)
             for col in range(self.table_dh_measured.columnCount()):
                 cell_widget = DHCellWidget()
-                if row == 0 or (row == 1 and col == 3):
+                if self._is_dh_cell_disabled(row, col):
                     cell_widget.set_enabled_state(False)
                 cell_widget.checkbox.stateChanged.connect(self._emit_dh_checkboxes_changed)
                 self.table_dh_measured.setCellWidget(row, col, cell_widget)
+
+    def _freeze_dh_table_height(self) -> None:
+        header_height = self.table_dh_measured.horizontalHeader().height()
+        rows_height = sum(self.table_dh_measured.rowHeight(row) for row in range(self.table_dh_measured.rowCount()))
+        frame_height = 2 * self.table_dh_measured.frameWidth()
+        self.table_dh_measured.setFixedHeight(header_height + rows_height + frame_height)
 
     def _initialize_tcp_offsets_table(self) -> None:
         self.table_tcp_offsets.blockSignals(True)
         self.table_tcp_offsets.clearContents()
         for row in range(self.table_tcp_offsets.rowCount()):
             for col in range(self.table_tcp_offsets.columnCount()):
-                self.table_tcp_offsets.setItem(row, col, QTableWidgetItem(self._format_value(0.0, 4)))
+                self.table_tcp_offsets.setItem(row, col, self._make_centered_item(self._format_value(0.0, 4)))
         self.table_tcp_offsets.blockSignals(False)
 
     def set_tcp_offsets_values(self, tcp_xyz: List[float], offsets_xyz: List[float]) -> None:
@@ -430,7 +491,7 @@ class MeasurementWidget(QWidget):
             row_values = values[row] if row < len(values) else [0.0, 0.0, 0.0]
             for col in range(3):
                 value = float(row_values[col]) if col < len(row_values) else 0.0
-                self.table_tcp_offsets.setItem(row, col, QTableWidgetItem(self._format_value(value, 4)))
+                self.table_tcp_offsets.setItem(row, col, self._make_centered_item(self._format_value(value, 4)))
         self.table_tcp_offsets.blockSignals(False)
 
     def get_dh_checkboxes_state(self) -> Dict[str, bool]:
