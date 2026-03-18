@@ -391,23 +391,15 @@ class TrajectoryKeypointDialog(QDialog):
     def _compute_joint_values_from_cartesian_target(self) -> list[float]:
         target = self.cartesian_target_widget.get_cartesian_values()
         mgi_result = self.robot_model.compute_ik_target(target)
-        valid_solutions = mgi_result.get_valid_solutions()
-        if not valid_solutions:
+        has_valid_raw = bool(mgi_result.get_valid_solutions())
+        has_valid_expanded = bool(mgi_result.get_valid_solutions_expanded())
+        if not has_valid_raw and not has_valid_expanded:
             self._set_cartesian_error("Aucune solution valide pour la target cartesienne.")
             return []
 
         selected_allowed = self._resolve_allowed_configs_for_preview()
         if not selected_allowed:
             self._set_cartesian_error("Aucune configuration autorisee avec la politique selectionnee.")
-            return []
-
-        allowed_valid = {
-            key: solution
-            for key, solution in valid_solutions.items()
-            if key in selected_allowed and len(solution.joints) >= 6
-        }
-        if not allowed_valid:
-            self._set_cartesian_error("Aucune solution valide dans les configurations autorisees.")
             return []
 
         reference_joints = [float(v) for v in self.joint_target_widget.get_all_joints()[:6]]
@@ -419,24 +411,20 @@ class TrajectoryKeypointDialog(QDialog):
         while len(weights) < 6:
             weights.append(1.0)
 
-        best_joints: list[float] | None = None
-        best_distance = float("inf")
-        for solution in allowed_valid.values():
-            solution_joints = [float(v) for v in solution.joints[:6]]
-            while len(solution_joints) < 6:
-                solution_joints.append(0.0)
-            solution_joints_rad = [math.radians(v) for v in solution_joints]
-            distance = sum(weights[i] * (reference_joints_rad[i] - solution_joints_rad[i]) ** 2 for i in range(6))
-            if distance < best_distance:
-                best_distance = distance
-                best_joints = solution_joints
-
-        if best_joints is not None:
-            self._set_cartesian_error("")
-            return best_joints
-
-        self._set_cartesian_error("Aucune solution exploitable pour la target cartesienne.")
-        return []
+        best_solution = mgi_result.get_best_solution_from_current(
+            reference_joints_rad,
+            weights,
+            allowed_configs=selected_allowed,
+        )
+        if best_solution is None:
+            self._set_cartesian_error("Aucune solution valide dans les configurations autorisees.")
+            return []
+        _, selected_item = best_solution
+        joints = [float(v) for v in selected_item.joints[:6]]
+        while len(joints) < 6:
+            joints.append(0.0)
+        self._set_cartesian_error("")
+        return joints
 
     def _sync_joint_target_from_cartesian_target(self) -> None:
         joints = self._compute_joint_values_from_cartesian_target()
@@ -562,9 +550,16 @@ class TrajectoryKeypointDialog(QDialog):
 
         mgi_result = self.robot_model.compute_ik_target(target)
         allowed_configs = self._resolve_allowed_configs_for_preview()
+        reference_joints = [float(v) for v in self.joint_target_widget.get_all_joints()[:6]]
+        while len(reference_joints) < 6:
+            reference_joints.append(0.0)
+        reference_joints_rad = [math.radians(v) for v in reference_joints]
+        weights = [float(v) for v in self.robot_model.get_joint_weights()[:6]]
+        while len(weights) < 6:
+            weights.append(1.0)
 
         for config_index, config_key in enumerate(self.CONFIG_ORDER):
-            solution = mgi_result.get_solution(config_key)
+            solution = mgi_result.get_solution_raw(config_key)
             if solution is None:
                 continue
 
@@ -577,7 +572,10 @@ class TrajectoryKeypointDialog(QDialog):
             target_table.insertRow(row_index)
             target_table.setItem(row_index, 0, QTableWidgetItem(config_key.name))
 
+            expanded_valid_for_config = mgi_result.get_solutions_expanded(config_key, only_valid=True)
             displayed_status = solution.status
+            if expanded_valid_for_config:
+                displayed_status = MgiResultStatus.VALID
             if displayed_status == MgiResultStatus.VALID and config_key not in allowed_configs:
                 displayed_status = MgiResultStatus.FORBIDDEN_CONFIGURATION
 
@@ -585,10 +583,21 @@ class TrajectoryKeypointDialog(QDialog):
             target_table.setItem(row_index, 1, status_item)
 
             use_btn = QPushButton("Sélectionner")
-            can_use = displayed_status == MgiResultStatus.VALID and len(solution.joints) >= 6
+            can_use = displayed_status == MgiResultStatus.VALID
             use_btn.setEnabled(can_use)
             if can_use:
-                joints = [float(v) for v in solution.joints[:6]]
+                best_for_config = mgi_result.get_best_solution_from_current(
+                    reference_joints_rad,
+                    weights,
+                    allowed_configs={config_key},
+                )
+                if best_for_config is not None:
+                    _, best_item = best_for_config
+                    joints = [float(v) for v in best_item.joints[:6]]
+                else:
+                    joints = [float(v) for v in solution.joints[:6]]
+                while len(joints) < 6:
+                    joints.append(0.0)
                 use_btn.clicked.connect(
                     lambda _, cfg=config_key, j=list(joints): self._apply_cartesian_solution(cfg, j)
                 )

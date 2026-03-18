@@ -372,10 +372,16 @@ class TrajectoryBuilder:
     ) -> dict[MgiConfigKey, TrajectorySampleMgiSolution]:
         compact: dict[MgiConfigKey, TrajectorySampleMgiSolution] = {}
         for config_key, solution in mgi_result.solutions.items():
-            status_name = solution.status.name
-            if solution.status == MgiResultStatus.VALID and config_key not in allowed_configs:
+            expanded_valid_for_config = mgi_result.get_solutions_expanded(config_key, only_valid=True)
+            selected_solution = expanded_valid_for_config[0] if expanded_valid_for_config else solution
+            status_name = (
+                MgiResultStatus.VALID.name
+                if expanded_valid_for_config
+                else solution.status.name
+            )
+            if status_name == MgiResultStatus.VALID.name and config_key not in allowed_configs:
                 status_name = MgiResultStatus.FORBIDDEN_CONFIGURATION.name
-            compact[config_key] = TrajectorySampleMgiSolution(status=status_name, joints=solution.joints)
+            compact[config_key] = TrajectorySampleMgiSolution(status=status_name, joints=selected_solution.joints)
         return compact
 
     def _select_best_solution(
@@ -386,21 +392,11 @@ class TrajectoryBuilder:
     ) -> tuple[MgiConfigKey, MgiResultItem] | None:
         reference_joints_rad = [math.radians(v) for v in self._get_reference_joints_for_ik(previous_sample)]
         joint_weights = self._get_joint_weights()
-
-        temporarily_forbidden: list[MgiResultItem] = []
-        for config_key, solution in mgi_result.solutions.items():
-            if config_key in allowed_configs:
-                continue
-            if solution.status != MgiResultStatus.VALID:
-                continue
-            solution.status = MgiResultStatus.FORBIDDEN_CONFIGURATION
-            temporarily_forbidden.append(solution)
-
-        try:
-            return mgi_result.get_best_solution_from_current(reference_joints_rad, joint_weights)
-        finally:
-            for solution in temporarily_forbidden:
-                solution.status = MgiResultStatus.VALID
+        return mgi_result.get_best_solution_from_current(
+            reference_joints_rad,
+            joint_weights,
+            allowed_configs,
+        )
 
     @staticmethod
     def _update_joint_stats(segment_result: SegmentResult, sample: TrajectorySample) -> None:
@@ -495,13 +491,25 @@ class TrajectoryBuilder:
     ) -> TrajectorySampleErrorCode:
         has_any_valid = False
         has_allowed_valid = False
-        for config_key, solution in mgi_result.solutions.items():
-            if solution.status != MgiResultStatus.VALID:
-                continue
-            has_any_valid = True
-            if config_key in allowed_configs:
-                has_allowed_valid = True
-                break
+
+        expanded_valid = mgi_result.get_valid_solutions_expanded()
+        if expanded_valid:
+            for solution in expanded_valid:
+                config_key = solution.config_key
+                if config_key is None:
+                    continue
+                has_any_valid = True
+                if config_key in allowed_configs:
+                    has_allowed_valid = True
+                    break
+        else:
+            for config_key, solution in mgi_result.solutions.items():
+                if solution.status != MgiResultStatus.VALID:
+                    continue
+                has_any_valid = True
+                if config_key in allowed_configs:
+                    has_allowed_valid = True
+                    break
         if has_any_valid and not has_allowed_valid:
             return TrajectorySampleErrorCode.FORBIDDEN_CONFIGURATION
         return TrajectorySampleErrorCode.POINT_UNREACHABLE

@@ -1,7 +1,8 @@
 from __future__ import annotations
-from math import radians, degrees, atan2, sin, cos, sqrt, pi
+from math import radians, degrees, atan2, sin, cos, sqrt, pi, ceil, floor
 import numpy as np
 from enum import Enum
+from itertools import product
 from typing import Set, override
 
 EPSILON = 1e-6
@@ -254,7 +255,8 @@ class MgiResultStatus(Enum):
     FORBIDDEN_CONFIGURATION = 4
 
 class MgiResultItem():
-    def __init__(self):
+    def __init__(self, config_key: MgiConfigKey | None = None):
+        self.config_key = config_key
         self.status = MgiResultStatus.VALID
         self.radians = True
         self.joints = [0, 0, 0, 0, 0, 0]
@@ -262,6 +264,17 @@ class MgiResultItem():
         self.j3Singularity = False
         self.j5Singularity = False
         self.violated_limits = []  # list of joint indices that violated limits
+
+    def clone(self) -> "MgiResultItem":
+        out = MgiResultItem(self.config_key)
+        out.status = self.status
+        out.radians = self.radians
+        out.joints = [float(v) for v in self.joints]
+        out.j1Singularity = self.j1Singularity
+        out.j3Singularity = self.j3Singularity
+        out.j5Singularity = self.j5Singularity
+        out.violated_limits = list(self.violated_limits)
+        return out
     
     def clear_joints(self):
         self.joints = [0, 0, 0, 0, 0, 0]
@@ -303,21 +316,28 @@ class MgiResultItem():
             self.joints = [degrees(q) for q in self.joints]
 
 class MgiResult():
+    _EXPANSION_ROUND_DIGITS = 10
+
     def __init__(self):
         self.all_solutions_evaluated = False
         self.solutions = {
-            MgiConfigKey.FUN: MgiResultItem(),
-            MgiConfigKey.FUF: MgiResultItem(),
-            MgiConfigKey.FDN: MgiResultItem(),
-            MgiConfigKey.FDF: MgiResultItem(),
-            MgiConfigKey.BUN: MgiResultItem(),
-            MgiConfigKey.BUF: MgiResultItem(),
-            MgiConfigKey.BDN: MgiResultItem(),
-            MgiConfigKey.BDF: MgiResultItem(),
+            MgiConfigKey.FUN: MgiResultItem(MgiConfigKey.FUN),
+            MgiConfigKey.FUF: MgiResultItem(MgiConfigKey.FUF),
+            MgiConfigKey.FDN: MgiResultItem(MgiConfigKey.FDN),
+            MgiConfigKey.FDF: MgiResultItem(MgiConfigKey.FDF),
+            MgiConfigKey.BUN: MgiResultItem(MgiConfigKey.BUN),
+            MgiConfigKey.BUF: MgiResultItem(MgiConfigKey.BUF),
+            MgiConfigKey.BDN: MgiResultItem(MgiConfigKey.BDN),
+            MgiConfigKey.BDF: MgiResultItem(MgiConfigKey.BDF),
         }
+        self.expanded_solutions: list[MgiResultItem] = []
 
-    def get_solution(self, key: MgiConfigKey) -> MgiResultItem:
+    def get_solution_raw(self, key: MgiConfigKey) -> MgiResultItem:
         return self.solutions[key]
+
+    # Backward-compatible alias for existing callers.
+    def get_solution(self, key: MgiConfigKey) -> MgiResultItem:
+        return self.get_solution_raw(key)
     
     def set_solution_joints(self, key: MgiConfigKey, joints: list[float]):
         self.solutions[key].joints = joints
@@ -325,6 +345,7 @@ class MgiResult():
     def clear_solutions_joints(self):
         for key in self.solutions:
             self.solutions[key].clear_joints()
+        self.expanded_solutions = []
     
     def get_front_solutions(self) -> dict[MgiConfigKey, MgiResultItem]:
         return {key: self.solutions[key] for key in FRONT_CONFIG_KEYS}
@@ -335,16 +356,94 @@ class MgiResult():
     def get_q1_front_back(self):
         return self.solutions[MgiConfigKey.FUN].joints[0], self.solutions[MgiConfigKey.BUN].joints[0]
 
+    @staticmethod
+    def _axis_limits_in_radians(axis_limits: MgiAxisLimits) -> list[tuple[float, float]]:
+        if axis_limits.radians:
+            return [(float(q_min), float(q_max)) for q_min, q_max in axis_limits.axis_limits[:6]]
+        return [(radians(float(q_min)), radians(float(q_max))) for q_min, q_max in axis_limits.axis_limits[:6]]
+
+    @staticmethod
+    def _build_expansion_axis_candidates(q: float, q_min: float, q_max: float) -> list[float]:
+        two_pi = 2.0 * pi
+        k_min = int(ceil((q_min - q) / two_pi - EPSILON))
+        k_max = int(floor((q_max - q) / two_pi + EPSILON))
+        if k_min > k_max:
+            return []
+        return [float(q + two_pi * k) for k in range(k_min, k_max + 1)]
+
+    @staticmethod
+    def _expansion_solution_key(item: MgiResultItem) -> tuple:
+        rounded = tuple(round(float(v), MgiResult._EXPANSION_ROUND_DIGITS) for v in item.joints[:6])
+        return (item.config_key, bool(item.radians), rounded)
+
+    def expand_solutions_with_axis_limits(self, axis_limits: MgiAxisLimits) -> None:
+        axis_limits_rad = MgiResult._axis_limits_in_radians(axis_limits)
+        expanded: list[MgiResultItem] = []
+
+        for config_key, raw_solution in self.solutions.items():
+            if raw_solution.status != MgiResultStatus.VALID:
+                continue
+
+            raw_joints = [float(v) for v in raw_solution.joints[:6]]
+            while len(raw_joints) < 6:
+                raw_joints.append(0.0)
+
+            axis_candidates: list[list[float]] = []
+            is_solution_expandable = True
+            for axis, q in enumerate(raw_joints):
+                q_min, q_max = axis_limits_rad[axis]
+                candidates = MgiResult._build_expansion_axis_candidates(q, q_min, q_max)
+                if not candidates:
+                    is_solution_expandable = False
+                    break
+                axis_candidates.append(candidates)
+
+            if not is_solution_expandable:
+                continue
+
+            for candidate in product(*axis_candidates):
+                new_solution = raw_solution.clone()
+                new_solution.config_key = config_key
+                new_solution.joints = [float(v) for v in candidate[:6]]
+                new_solution.violated_limits = []
+                expanded.append(new_solution)
+
+        dedup: dict[tuple, MgiResultItem] = {}
+        for solution in expanded:
+            key = MgiResult._expansion_solution_key(solution)
+            if key not in dedup:
+                dedup[key] = solution
+        self.expanded_solutions = list(dedup.values())
+
+    def get_solutions_expanded(self, key: MgiConfigKey, only_valid: bool = False) -> list[MgiResultItem]:
+        out: list[MgiResultItem] = []
+        for solution in self.expanded_solutions:
+            if solution.config_key != key:
+                continue
+            if only_valid and solution.status != MgiResultStatus.VALID:
+                continue
+            out.append(solution)
+        return out
+
+    def get_valid_solutions_expanded(self) -> list[MgiResultItem]:
+        return [solution for solution in self.expanded_solutions if solution.status == MgiResultStatus.VALID]
+
+    def _iter_all_solution_items(self) -> list[MgiResultItem]:
+        return list(self.solutions.values()) + list(self.expanded_solutions)
+
     def apply_invert_table(self, invert_table: list[bool]):
         if True not in invert_table:
             return
 
         for key, item in self.solutions.items():
             self.solutions[key].joints = MgiResult._joints_invert(item.joints, invert_table)
+        for item in self.expanded_solutions:
+            item.joints = MgiResult._joints_invert(item.joints, invert_table)
 
     def apply_axis_limits(self, axis_limits: MgiAxisLimits):
-        for sol in self.solutions.values():
+        for sol in self._iter_all_solution_items():
             if sol.status == MgiResultStatus.VALID:
+                sol.violated_limits = []
                 for i, (j, (jMin, jMax)) in enumerate(zip(sol.joints, axis_limits.axis_limits)):
                     if j < jMin or j > jMax:
                         sol.status = MgiResultStatus.AXIS_LIMIT_VIOLATED
@@ -356,21 +455,32 @@ class MgiResult():
             if sol.status == MgiResultStatus.VALID:
                 if not config_filter.is_allowed(key):
                     sol.status = MgiResultStatus.FORBIDDEN_CONFIGURATION
+        for solution in self.expanded_solutions:
+            if solution.status != MgiResultStatus.VALID:
+                continue
+            if solution.config_key is None:
+                continue
+            if not config_filter.is_allowed(solution.config_key):
+                solution.status = MgiResultStatus.FORBIDDEN_CONFIGURATION
 
     def to_degrees(self):
-        for sol in self.solutions.values():
+        for sol in self._iter_all_solution_items():
             sol.to_degrees()
         
     def to_radians(self):
-        for sol in self.solutions.values():
+        for sol in self._iter_all_solution_items():
             sol.to_radians()
     
     @property
     def has_valid_solution(self) -> bool:
+        if any(sol.status == MgiResultStatus.VALID for sol in self.expanded_solutions):
+            return True
         return any(sol.status == MgiResultStatus.VALID for sol in self.solutions.values())
 
     @property
     def valid_count(self) -> int:
+        if self.expanded_solutions:
+            return sum(1 for sol in self.expanded_solutions if sol.status == MgiResultStatus.VALID)
         return sum(1 for sol in self.solutions.values() if sol.status == MgiResultStatus.VALID)
 
     @staticmethod
@@ -390,25 +500,28 @@ class MgiResult():
         return {key: sol for key, sol in self.solutions.items() if sol.status == MgiResultStatus.VALID}
 
     def get_best_solution(self, prefer_front: bool = True, prefer_up: bool = True, prefer_no_flip: bool = True) -> tuple[MgiConfigKey, MgiResultItem] | None:
-        """Retourne la meilleure solution selon les préférences"""
+        """Retourne la meilleure solution selon les préférences."""
         valid = self.get_valid_solutions()
         if not valid:
             return None
-        
-        # Scoring simple basé sur les préférences
+
         def score(key: MgiConfigKey):
             s = 0
-            if prefer_front and key in FRONT_CONFIG_KEYS: s += 4
-            if prefer_up and key in UP_CONFIG_KEYS: s += 2
-            if prefer_no_flip and key in NO_FLIP_CONFIG_KEYS: s += 1
+            if prefer_front and key in FRONT_CONFIG_KEYS:
+                s += 4
+            if prefer_up and key in UP_CONFIG_KEYS:
+                s += 2
+            if prefer_no_flip and key in NO_FLIP_CONFIG_KEYS:
+                s += 1
             return s
-        
+
         best_key = max(valid.keys(), key=score)
         return best_key, valid[best_key]
 
     def get_best_solution_from_current(self,
                                        current_joints_rad: list[float],
-                                       joint_weights: list[float] = None) -> tuple[MgiConfigKey, MgiResultItem] | None:
+                                       joint_weights: list[float] = None,
+                                       allowed_configs: Set[MgiConfigKey] | None = None) -> tuple[MgiConfigKey, MgiResultItem] | None:
         """
         Trouve la meilleure solution en fonction de la position courante.
         
@@ -418,27 +531,55 @@ class MgiResult():
         Returns:
             (MgiConfigKey, MgiResultItem) de la meilleure solution, ou None si aucune solution valide
         """
-        valid_solutions = self.get_valid_solutions()
-        if not valid_solutions:
-            return None
+        expanded_candidates = self.get_valid_solutions_expanded()
+        if allowed_configs is not None:
+            expanded_candidates = [
+                sol for sol in expanded_candidates
+                if sol.config_key is not None and sol.config_key in allowed_configs
+            ]
+
+        if expanded_candidates:
+            candidates = expanded_candidates
+        else:
+            raw_candidates = list(self.get_valid_solutions().values())
+            if allowed_configs is not None:
+                raw_candidates = [
+                    sol for sol in raw_candidates
+                    if sol.config_key is not None and sol.config_key in allowed_configs
+                ]
+            if not raw_candidates:
+                return None
+            candidates = raw_candidates
         
         if not joint_weights:
-            joint_weights = [1.0] * 6
+            weights = [1.0] * 6
+        else:
+            weights = [float(v) for v in joint_weights[:6]]
         
-        while len(joint_weights) < 6:
-            joint_weights.append(1.0)
+        while len(weights) < 6:
+            weights.append(1.0)
+
+        current = [float(v) for v in current_joints_rad[:6]]
+        while len(current) < 6:
+            current.append(0.0)
         
-        best_key: MgiConfigKey = None
+        best_item: MgiResultItem | None = None
         best_distance = float('inf')
         
-        for key, sol in valid_solutions.items():
-            sol_joints_rad = [radians(q) for q in sol.joints]
-            distance = sum((joint_weights[i] * (c - s)**2) for i, (c, s) in enumerate(zip(current_joints_rad, sol_joints_rad)))
+        for sol in candidates:
+            sol_joints_rad = [float(v) for v in sol.joints[:6]]
+            if not sol.radians:
+                sol_joints_rad = [radians(q) for q in sol_joints_rad]
+            while len(sol_joints_rad) < 6:
+                sol_joints_rad.append(0.0)
+            distance = sum((weights[i] * (c - s) ** 2) for i, (c, s) in enumerate(zip(current, sol_joints_rad)))
             if distance < best_distance:
                 best_distance = distance
-                best_key = key
+                best_item = sol
         
-        return best_key, valid_solutions[best_key]
+        if best_item is None or best_item.config_key is None:
+            return None
+        return best_item.config_key, best_item
 
 
 class MGI():
@@ -981,17 +1122,17 @@ class MGI():
 
     def _feed_q4_q5_q6(self, results: MgiResult, verbose=False):
         
-        front_up_no_flipped_solution = results.get_solution(MgiConfigKey.FUN)
-        front_up_flipped_solution = results.get_solution(MgiConfigKey.FUF)
+        front_up_no_flipped_solution = results.get_solution_raw(MgiConfigKey.FUN)
+        front_up_flipped_solution = results.get_solution_raw(MgiConfigKey.FUF)
 
-        front_down_no_flipped_solution = results.get_solution(MgiConfigKey.FDN)
-        front_down_flipped_solution = results.get_solution(MgiConfigKey.FDF)
+        front_down_no_flipped_solution = results.get_solution_raw(MgiConfigKey.FDN)
+        front_down_flipped_solution = results.get_solution_raw(MgiConfigKey.FDF)
 
-        back_up_no_flipped_solution = results.get_solution(MgiConfigKey.BUN)
-        back_up_flipped_solution = results.get_solution(MgiConfigKey.BUF)
+        back_up_no_flipped_solution = results.get_solution_raw(MgiConfigKey.BUN)
+        back_up_flipped_solution = results.get_solution_raw(MgiConfigKey.BUF)
         
-        back_down_no_flipped_solution = results.get_solution(MgiConfigKey.BDN)
-        back_down_flipped_solution = results.get_solution(MgiConfigKey.BDF)
+        back_down_no_flipped_solution = results.get_solution_raw(MgiConfigKey.BDN)
+        back_down_flipped_solution = results.get_solution_raw(MgiConfigKey.BDF)
 
         q1A = front_up_no_flipped_solution.joints[0]
         q1B = back_up_no_flipped_solution.joints[0]
@@ -1198,6 +1339,7 @@ class MGI():
         
         # Inversion des axes selon constructeur
         results.apply_invert_table(self.params.invert_table)
+        results.expand_solutions_with_axis_limits(axis_limits_to_use)
 
         # Verification des limites d'axes
         # Créer une copie pour ne pas modifier l'original

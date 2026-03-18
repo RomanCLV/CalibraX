@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem,
-    QPushButton, QTabWidget, QAbstractItemView
+    QPushButton, QTabWidget, QAbstractItemView, QCheckBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush
@@ -42,6 +42,7 @@ class MgiSolutionsWidget(QWidget):
     """
 
     solution_selected = pyqtSignal(MgiConfigKey)
+    solution_item_selected = pyqtSignal(MgiConfigKey, list)
     allowed_configs_changed = pyqtSignal()
     weights_changed = pyqtSignal(list)
     jacobien_enabled_changed = pyqtSignal(bool)
@@ -52,7 +53,9 @@ class MgiSolutionsWidget(QWidget):
 
         self._mgi_result: MgiResult | None = None
         self._selected_key: MgiConfigKey | None = None
+        self._selected_joints: list[float] | None = None
         self._axis_limits = [(-180., 180.) for _ in range(6)]
+        self._show_expanded_solutions = False
 
         self._tabs = QTabWidget()
         self._solutions_tab = QWidget()
@@ -90,13 +93,25 @@ class MgiSolutionsWidget(QWidget):
     def set_axis_limits(self, limits: list[tuple[float, float]]):
         self._axis_limits = limits
 
-    def set_mgi_result(self, result: MgiResult, selected_key: MgiConfigKey|None):
+    def set_mgi_result(self, result: MgiResult, selected_key: MgiConfigKey|None, selected_joints: list[float] | None = None):
         self._mgi_result = result
         self._selected_key = selected_key
+        if selected_joints is None:
+            self._selected_joints = None
+        else:
+            joints = [float(v) for v in selected_joints[:6]]
+            while len(joints) < 6:
+                joints.append(0.0)
+            self._selected_joints = joints
         self._populate_table()
     
-    def set_selected_key(self, selected_key: MgiConfigKey|None):
+    def set_selected_key(self, selected_key: MgiConfigKey|None, selected_joints: list[float] | None = None):
         self._selected_key = selected_key
+        if selected_joints is not None:
+            joints = [float(v) for v in selected_joints[:6]]
+            while len(joints) < 6:
+                joints.append(0.0)
+            self._selected_joints = joints
         if self._mgi_result:
             self._populate_table()
     
@@ -113,6 +128,14 @@ class MgiSolutionsWidget(QWidget):
 
     def _init_solutions_tab(self):
         layout = QVBoxLayout(self._solutions_tab)
+
+        self._cb_show_expanded = QCheckBox("Afficher solutions étendues")
+        self._cb_show_expanded.setChecked(False)
+        self._cb_show_expanded.setToolTip(
+            "Affiche les variantes équivalentes (tours +/-360) quand disponibles."
+        )
+        self._cb_show_expanded.toggled.connect(self._on_show_expanded_toggled)
+        layout.addWidget(self._cb_show_expanded)
 
         self._table = QTableWidget()
         self._table.setColumnCount(9)
@@ -135,14 +158,28 @@ class MgiSolutionsWidget(QWidget):
         if self._mgi_result is None:
             return
         
-        for row, (config_key, item) in enumerate(self._mgi_result.solutions.items()):
+        if self._show_expanded_solutions and self._mgi_result.expanded_solutions:
+            config_order = {key: idx for idx, key in enumerate(MgiConfigKey)}
+            rows: list[tuple[MgiConfigKey, MgiResultItem]] = []
+            for item in self._mgi_result.expanded_solutions:
+                if item.config_key is None:
+                    continue
+                rows.append((item.config_key, item))
+            rows.sort(key=lambda pair: (config_order.get(pair[0], 999), pair[1].joints))
+        else:
+            rows = list(self._mgi_result.solutions.items())
+
+        selected_row_index = self._resolve_selected_row_index(rows)
+
+        for row, (config_key, item) in enumerate(rows):
             self._table.insertRow(row)
 
             col_index = 0
 
             # --- Configuration
             configuration_item = QTableWidgetItem(config_key.name)
-            configuration_item.setForeground(QBrush(QColor("orange" if config_key == self._selected_key else "white" )))
+            is_selected_row = selected_row_index is not None and row == selected_row_index
+            configuration_item.setForeground(QBrush(QColor("orange" if is_selected_row else "white")))
             self._table.setItem(row, col_index, configuration_item)
             
             col_index += 1
@@ -167,11 +204,84 @@ class MgiSolutionsWidget(QWidget):
             if not btn.isEnabled():
                 btn.setStyleSheet("color: gray")
             
-            btn.clicked.connect(lambda _, k=config_key: self.solution_selected.emit(k))
+            row_joints = [float(v) for v in item.joints[:6]]
+            while len(row_joints) < 6:
+                row_joints.append(0.0)
+            btn.clicked.connect(
+                lambda _, k=config_key, j=row_joints: self._emit_solution_selection(k, j)
+            )
             self._table.setCellWidget(row, col_index, btn)
             col_index += 1
 
         self._table.resizeColumnsToContents()
+
+    def _on_show_expanded_toggled(self, checked: bool) -> None:
+        self._show_expanded_solutions = bool(checked)
+        self._populate_table()
+
+    def _emit_solution_selection(self, config_key: MgiConfigKey, joints: list[float]) -> None:
+        copied = [float(v) for v in joints[:6]]
+        while len(copied) < 6:
+            copied.append(0.0)
+        self.solution_item_selected.emit(config_key, copied)
+        # Compat: conserve l'ancien signal base sur la config uniquement.
+        self.solution_selected.emit(config_key)
+
+    def _resolve_selected_row_index(self, rows: list[tuple[MgiConfigKey, MgiResultItem]]) -> int | None:
+        if not rows:
+            return None
+
+        # Priorite: retrouver la solution qui correspond vraiment aux angles courants.
+        # Cela reste fiable meme si la cle de config est stale ou ambigue.
+        if self._selected_joints is not None:
+            selected = [float(v) for v in self._selected_joints[:6]]
+            while len(selected) < 6:
+                selected.append(0.0)
+
+            weights = [float(v) for v in self._joint_weights[:6]]
+            while len(weights) < 6:
+                weights.append(1.0)
+
+            exact_candidates: list[int] = []
+            best_idx = 0
+            best_distance = float("inf")
+
+            for idx, (_, item) in enumerate(rows):
+                joints = [float(v) for v in item.joints[:6]]
+                while len(joints) < 6:
+                    joints.append(0.0)
+
+                deltas = [selected[axis] - joints[axis] for axis in range(6)]
+                max_abs_delta = max(abs(v) for v in deltas)
+                if max_abs_delta <= 1e-6:
+                    exact_candidates.append(idx)
+
+                distance = 0.0
+                for axis in range(6):
+                    distance += weights[axis] * (deltas[axis] ** 2)
+
+                if distance < best_distance:
+                    best_distance = distance
+                    best_idx = idx
+
+            if exact_candidates:
+                if self._selected_key is not None:
+                    for idx in exact_candidates:
+                        cfg, _ = rows[idx]
+                        if cfg == self._selected_key:
+                            return idx
+                return exact_candidates[0]
+
+            return best_idx
+
+        if self._selected_key is None:
+            return None
+
+        for idx, (cfg, _) in enumerate(rows):
+            if cfg == self._selected_key:
+                return idx
+
+        return None
 
     def _build_status_tooltip(self, item: MgiResultItem) -> str:
         lines = [f"Statut : {item.status.name}"]
