@@ -62,17 +62,18 @@ class TrajectoryConfigWidget(QWidget):
         self.keypoints_table = QTableWidget(0, 11)
         self.btn_add = QPushButton("Ajouter")
         self.btn_edit = QPushButton("Editer")
-        self.btn_go_to = QPushButton("Aller a")
+        self.btn_go_to = QPushButton("Aller à")
         self.btn_delete = QPushButton("Supprimer")
         self.btn_move_up = QPushButton("Monter")
         self.btn_move_down = QPushButton("Descendre")
         self.btn_import = QPushButton("Importer")
         self.btn_export = QPushButton("Exporter")
-        self.cb_smooth_time = QCheckBox("Lisser le temps (cubic_transition)")
+        self.btn_delete_all = QPushButton("Tout supprimer")
+        self.cb_smooth_time = QCheckBox("Lisser le temps")
         self.cb_smooth_time.setChecked(True)
         self.cb_smooth_time.setToolTip(
-            "Active smooth_t3 = cubic_transition(linear_t). "
-            "Desactive smooth_t3 = linear_t."
+            "Active : transition cubique. "
+            "Desactive : transition linéaire"
         )
 
         self._keypoints: list[TrajectoryKeypoint] = []
@@ -127,6 +128,7 @@ class TrajectoryConfigWidget(QWidget):
         btn_row.addWidget(self.btn_move_down)
         btn_row.addWidget(self.btn_import)
         btn_row.addWidget(self.btn_export)
+        btn_row.addWidget(self.btn_delete_all)
         btn_row.addStretch()
         layout.addLayout(btn_row)
 
@@ -134,6 +136,7 @@ class TrajectoryConfigWidget(QWidget):
         self.btn_add.clicked.connect(self._on_add_clicked)
         self.btn_edit.clicked.connect(self._on_edit_clicked)
         self.btn_delete.clicked.connect(self._on_delete_clicked)
+        self.btn_delete_all.clicked.connect(self._on_delete_all_clicked)
         self.btn_go_to.clicked.connect(self._on_go_to_clicked)
         self.btn_move_up.clicked.connect(self._on_move_up_clicked)
         self.btn_move_down.clicked.connect(self._on_move_down_clicked)
@@ -177,6 +180,7 @@ class TrajectoryConfigWidget(QWidget):
             self.btn_add.setEnabled(False)
             self.btn_edit.setEnabled(False)
             self.btn_delete.setEnabled(False)
+            self.btn_delete_all.setEnabled(False)
             self.btn_go_to.setEnabled(False)
             self.btn_move_up.setEnabled(False)
             self.btn_move_down.setEnabled(False)
@@ -190,6 +194,7 @@ class TrajectoryConfigWidget(QWidget):
         self.btn_add.setEnabled(True)
         self.btn_edit.setEnabled(has_selection)
         self.btn_delete.setEnabled(has_selection)
+        self.btn_delete_all.setEnabled(has_keypoints)
         self.btn_go_to.setEnabled(has_selection)
         self.btn_move_up.setEnabled(has_selection and row is not None and row > 0)
         self.btn_move_down.setEnabled(has_selection and row is not None and row < (len(self._keypoints) - 1))
@@ -372,6 +377,26 @@ class TrajectoryConfigWidget(QWidget):
         self._keypoints.pop(row)
         self._refresh_table()
         self.delete_requested.emit()
+        self._emit_keypoints_changed()
+        self._emit_selection_changed()
+
+    def _on_delete_all_clicked(self) -> None:
+        if not self._keypoints:
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Supprimer tous les points cles",
+            "Voulez-vous supprimer tous les points cles de la trajectoire ?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        self._keypoints.clear()
+        self._refresh_table()
+        self.keypoints_table.clearSelection()
         self._emit_keypoints_changed()
         self._emit_selection_changed()
 

@@ -21,15 +21,15 @@ class TrajectoryActionsWidget(QWidget):
         self._time_range = (0.0, 10.0)
 
         self.btn_compute = QPushButton("Calculer")
-        self.btn_export_trajectory = QPushButton("Exporter trajectoire CSV")
         self.btn_home = QPushButton("Aller Home")
 
-        self.btn_play = QPushButton("Demarrer")
+        self.btn_play = QPushButton("Démarrer")
         self.btn_pause = QPushButton("Pause")
         self.btn_stop = QPushButton("Stop")
+        self.btn_export_trajectory = QPushButton("Exporter trajectoire CSV")
 
         # Keep these options in code, but hide them from UI for now.
-        self.cb_reverse = QCheckBox("Inverser a la fin")
+        self.cb_reverse = QCheckBox("Inverser à la fin")
         self.cb_loop = QCheckBox("Boucle")
         self.cb_reverse.setVisible(False)
         self.cb_loop.setVisible(False)
@@ -50,11 +50,11 @@ class TrajectoryActionsWidget(QWidget):
 
         row_actions = QHBoxLayout()
         row_actions.addWidget(self.btn_compute)
-        row_actions.addWidget(self.btn_export_trajectory)
         row_actions.addWidget(self.btn_home)
         row_actions.addWidget(self.btn_play)
         row_actions.addWidget(self.btn_pause)
         row_actions.addWidget(self.btn_stop)
+        row_actions.addWidget(self.btn_export_trajectory)
         row_actions.addStretch()
 
         row_timeline = QHBoxLayout()
