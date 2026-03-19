@@ -29,6 +29,13 @@ class TrajectoryBuilder:
     MAX_SAMPLES_PER_SEGMENT = 50_000
     LINEAR_TANGENT_RATIO = LINEAR_TANGENT_RATIO
     _EPS = 1e-9
+    # Heuristic thresholds to detect "teleportation-like" joint jumps.
+    # These values are intentionally high to avoid flagging ordinary overspeed cases.
+    CONFIG_JUMP_ACCEL_THRESHOLD_DEG_S2 = 20_000.0
+    CONFIG_JUMP_DELTA_FACTOR = 6.0
+    CONFIG_JUMP_SPEED_FACTOR = 8.0
+    CONFIG_JUMP_MIN_DELTA_DEG = 45.0
+    CONFIG_JUMP_MIN_SPEED_DEG_S = 2_000.0
 
     def __init__(
         self,
@@ -85,6 +92,8 @@ class TrajectoryBuilder:
     def _status_from_sample_error(error_code: TrajectorySampleErrorCode) -> TrajectoryComputationStatus:
         if error_code == TrajectorySampleErrorCode.POINT_UNREACHABLE:
             return TrajectoryComputationStatus.POINT_UNREACHABLE
+        if error_code == TrajectorySampleErrorCode.CONFIGURATION_JUMP:
+            return TrajectoryComputationStatus.CONFIGURATION_JUMP
         if error_code == TrajectorySampleErrorCode.OVER_DYNAMIC_LIMIT:
             return TrajectoryComputationStatus.OVER_DYNAMIC_LIMIT
         if error_code == TrajectorySampleErrorCode.FORBIDDEN_CONFIGURATION:
@@ -481,6 +490,63 @@ class TrajectoryBuilder:
             )
             if jerk > jerk_limit + eps:
                 sample.error_code = TrajectorySampleErrorCode.OVER_DYNAMIC_LIMIT
+                sample.error_axis = axis
+                return
+
+    def _apply_config_jump_detection_if_needed(
+        self,
+        sample: TrajectorySample,
+        previous_sample: TrajectorySample | None,
+        speed_limits_deg_s: list[float],
+        accel_limits_deg_s2: list[float],
+    ) -> None:
+        """
+        Detect likely branch/configuration jumps after IK selection.
+        The detector uses very high dynamic thresholds to distinguish
+        true discontinuities from normal dynamic-limit exceedances.
+        """
+        if sample.error_code != TrajectorySampleErrorCode.NONE:
+            return
+        if previous_sample is None:
+            return
+        if not sample.reachable or not previous_sample.reachable:
+            return
+
+        dt = sample.time - previous_sample.time
+        if dt <= self._EPS:
+            dt = self.sample_dt_s
+
+        for axis in range(6):
+            q_curr = float(sample.joints[axis])
+            q_prev = float(previous_sample.joints[axis])
+            delta_q = abs(q_curr - q_prev)
+
+            speed_limit = max(float(speed_limits_deg_s[axis]), self._EPS)
+            accel_limit = max(float(accel_limits_deg_s2[axis]), self._EPS)
+
+            # First gate: discontinuity in joint position for the sample period.
+            allowed_delta = max(
+                TrajectoryBuilder.CONFIG_JUMP_MIN_DELTA_DEG,
+                TrajectoryBuilder.CONFIG_JUMP_DELTA_FACTOR * speed_limit * dt,
+            )
+            if delta_q <= allowed_delta:
+                continue
+
+            vel = abs(float(sample.articular_velocity[axis]))
+            acc = abs(float(sample.articular_acceleration[axis]))
+
+            # Second gate: dynamics consistent with a near-instant jump.
+            speed_threshold = max(
+                TrajectoryBuilder.CONFIG_JUMP_MIN_SPEED_DEG_S,
+                TrajectoryBuilder.CONFIG_JUMP_SPEED_FACTOR * speed_limit,
+            )
+            accel_threshold = max(
+                TrajectoryBuilder.CONFIG_JUMP_ACCEL_THRESHOLD_DEG_S2,
+                TrajectoryBuilder.CONFIG_JUMP_SPEED_FACTOR * accel_limit,
+            )
+
+            if vel >= speed_threshold or acc >= accel_threshold:
+                sample.error_code = TrajectorySampleErrorCode.CONFIGURATION_JUMP
                 sample.error_axis = axis
                 return
 
@@ -902,6 +968,12 @@ class TrajectoryBuilder:
         )
 
         self._update_articular_dynamics(sample, previous_sample, dt)
+        self._apply_config_jump_detection_if_needed(
+            sample,
+            previous_sample,
+            speed_limits_deg_s,
+            accel_limits_deg_s2,
+        )
         # self._apply_dynamic_limits_if_needed(
         #     sample,
         #     previous_sample,
@@ -1001,6 +1073,12 @@ class TrajectoryBuilder:
             sample.cartesian_acceleration[2],
         )
         self._update_articular_dynamics(sample, previous_sample, dt)
+        self._apply_config_jump_detection_if_needed(
+            sample,
+            previous_sample,
+            speed_limits_deg_s,
+            accel_limits_deg_s2,
+        )
         # self._apply_dynamic_limits_if_needed(
         #     sample,
         #     previous_sample,

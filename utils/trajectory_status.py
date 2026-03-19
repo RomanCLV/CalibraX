@@ -19,6 +19,8 @@ def status_to_message(status: TrajectoryComputationStatus, axis: int | None = No
         return "valide"
     if status == TrajectoryComputationStatus.POINT_UNREACHABLE:
         return "point inatteignable"
+    if status == TrajectoryComputationStatus.CONFIGURATION_JUMP:
+        return f"saut de configuration detecte ({_axis_label(axis)})"
     if status == TrajectoryComputationStatus.OVER_DYNAMIC_LIMIT:
         return f"limite dynamique depassee ({_axis_label(axis)})"
     if status == TrajectoryComputationStatus.NO_COMMON_ALLOWED_CONFIGURATION:
@@ -33,6 +35,8 @@ def sample_error_to_message(error_code: TrajectorySampleErrorCode, axis: int | N
         return "valide"
     if error_code == TrajectorySampleErrorCode.POINT_UNREACHABLE:
         return "point inatteignable"
+    if error_code == TrajectorySampleErrorCode.CONFIGURATION_JUMP:
+        return f"saut de configuration detecte ({_axis_label(axis)})"
     if error_code == TrajectorySampleErrorCode.OVER_DYNAMIC_LIMIT:
         return f"limite dynamique depassee ({_axis_label(axis)})"
     if error_code == TrajectorySampleErrorCode.FORBIDDEN_CONFIGURATION:
@@ -64,6 +68,7 @@ def build_segment_issue_messages(segment: SegmentResult, segment_index: int) -> 
     ordered_codes = [
         TrajectorySampleErrorCode.POINT_UNREACHABLE,
         TrajectorySampleErrorCode.FORBIDDEN_CONFIGURATION,
+        TrajectorySampleErrorCode.CONFIGURATION_JUMP,
         TrajectorySampleErrorCode.OVER_DYNAMIC_LIMIT,
     ]
     for code in ordered_codes:
