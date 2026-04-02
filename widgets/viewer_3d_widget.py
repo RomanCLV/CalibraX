@@ -1,3 +1,4 @@
+import os
 from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QListWidget, QListWidgetItem, QAbstractItemView, QLabel
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QFont
@@ -6,6 +7,8 @@ from pyqtgraph.Qt import QtGui
 import numpy as np
 from stl import mesh
 
+import utils.math_utils as math_utils
+from models.collider_models import parse_axis_colliders, parse_primitive_colliders
 from models.robot_model import RobotModel
 
 class Viewer3DWidget(QWidget):
@@ -42,6 +45,22 @@ class Viewer3DWidget(QWidget):
         self._ghost_visible = False
         self._robot_model: RobotModel | None = None
         self._mesh_data_cache: dict[str, gl.MeshData] = {}
+        self._missing_mesh_paths: set[str] = set()
+        self._primitive_mesh_cache: dict[str, gl.MeshData] = {}
+        self._workspace_elements: list[dict] = []
+        self._workspace_tcp_zones: list[dict] = []
+        self._workspace_collision_zones: list[dict] = []
+        self._axis_colliders: list[dict] = []
+        self._tool_colliders: list[dict] = []
+        self._workspace_element_items: list[gl.GLMeshItem] = []
+        self._workspace_tcp_zone_items: list[gl.GLMeshItem] = []
+        self._workspace_collision_zone_items: list[gl.GLMeshItem] = []
+        self._robot_collider_items: list[gl.GLMeshItem] = []
+        self._tool_collider_items: list[gl.GLMeshItem] = []
+        self._workspace_tcp_zones_visible = True
+        self._workspace_collision_zones_visible = True
+        self._robot_colliders_visible = True
+        self._tool_colliders_visible = True
         self.transparency_enabled = False
         self.setup_ui()
 
@@ -109,6 +128,17 @@ class Viewer3DWidget(QWidget):
         toggle_layout.addWidget(self.btn_toggle_axes)
         toggle_layout.addWidget(self.btn_toggle_axes_base_tool)
         layout.addLayout(toggle_layout)
+
+        workspace_toggle_layout = QHBoxLayout()
+        self.btn_toggle_workspace_tcp_zones = QPushButton("Zones TCP")
+        self.btn_toggle_workspace_collision_zones = QPushButton("Zones collisions")
+        self.btn_toggle_robot_colliders = QPushButton("Colliders robot")
+        self.btn_toggle_tool_colliders = QPushButton("Colliders tool")
+        workspace_toggle_layout.addWidget(self.btn_toggle_workspace_tcp_zones)
+        workspace_toggle_layout.addWidget(self.btn_toggle_workspace_collision_zones)
+        workspace_toggle_layout.addWidget(self.btn_toggle_robot_colliders)
+        workspace_toggle_layout.addWidget(self.btn_toggle_tool_colliders)
+        layout.addLayout(workspace_toggle_layout)
         
         self.setLayout(layout)
         self.add_grid()
@@ -118,6 +148,10 @@ class Viewer3DWidget(QWidget):
         self.btn_toggle_transparency.clicked.connect(self._on_transparency_button_clicked)
         self.btn_toggle_axes.clicked.connect(self._on_axes_button_clicked)
         self.btn_toggle_axes_base_tool.clicked.connect(self.toogle_base_axis_frames)
+        self.btn_toggle_workspace_tcp_zones.clicked.connect(self._on_workspace_tcp_zones_button_clicked)
+        self.btn_toggle_workspace_collision_zones.clicked.connect(self._on_workspace_collision_zones_button_clicked)
+        self.btn_toggle_robot_colliders.clicked.connect(self._on_robot_colliders_button_clicked)
+        self.btn_toggle_tool_colliders.clicked.connect(self._on_tool_colliders_button_clicked)
 
     def _position_overlays(self):
         """Positionne la liste en haut a droite et le label en haut a gauche"""
@@ -155,9 +189,25 @@ class Viewer3DWidget(QWidget):
 
     def _on_axes_button_clicked(self):
         self.show_axes = not self.show_axes
-        for i in range(6):
+        for i in range(len(self.frames_visibility)):
             self.frames_visibility[i] = self.show_axes
         self._clear_and_refresh()
+
+    def _on_workspace_tcp_zones_button_clicked(self):
+        self._workspace_tcp_zones_visible = not self._workspace_tcp_zones_visible
+        self._apply_items_visibility(self._workspace_tcp_zone_items, self._workspace_tcp_zones_visible)
+
+    def _on_workspace_collision_zones_button_clicked(self):
+        self._workspace_collision_zones_visible = not self._workspace_collision_zones_visible
+        self._apply_items_visibility(self._workspace_collision_zone_items, self._workspace_collision_zones_visible)
+
+    def _on_robot_colliders_button_clicked(self):
+        self._robot_colliders_visible = not self._robot_colliders_visible
+        self._apply_items_visibility(self._robot_collider_items, self._robot_colliders_visible)
+
+    def _on_tool_colliders_button_clicked(self):
+        self._tool_colliders_visible = not self._tool_colliders_visible
+        self._apply_items_visibility(self._tool_collider_items, self._tool_colliders_visible)
 
     def update_frame_list_ui(self):
         """Met à jour l'apparence de la liste (Gras = Visible)"""
@@ -447,6 +497,11 @@ class Viewer3DWidget(QWidget):
         try:
             if not stl_path:
                 return None
+            if stl_path in self._missing_mesh_paths:
+                if os.path.exists(stl_path):
+                    self._missing_mesh_paths.remove(stl_path)
+                else:
+                    return None
             mesh_data = self._mesh_data_cache.get(stl_path)
             if mesh_data is None:
                 stl_mesh = mesh.Mesh.from_file(stl_path)
@@ -466,6 +521,7 @@ class Viewer3DWidget(QWidget):
             mesh_item.setTransform(qmat)
             return mesh_item
         except Exception as e:
+            self._missing_mesh_paths.add(stl_path)
             print(f"Erreur STL {stl_path}: {e}")
             return None
 
@@ -641,6 +697,158 @@ class Viewer3DWidget(QWidget):
 
         self._clear_and_refresh()
 
+    def update_workspace(self, robot_model: RobotModel) -> None:
+        self._robot_model = robot_model
+        self._workspace_elements = robot_model.get_workspace_cad_elements()
+        self._workspace_tcp_zones = parse_primitive_colliders(robot_model.get_workspace_tcp_zones(), default_shape="box")
+        self._workspace_collision_zones = parse_primitive_colliders(
+            robot_model.get_workspace_collision_zones(),
+            default_shape="box",
+        )
+        self._clear_and_refresh()
+
+    def update_collision_models(self, robot_model: RobotModel) -> None:
+        self._robot_model = robot_model
+        self._axis_colliders = parse_axis_colliders(robot_model.get_axis_colliders(), 6)
+        self._tool_colliders = parse_primitive_colliders(robot_model.get_tool_colliders(), default_shape="cylinder")
+        self._clear_and_refresh()
+
+    @staticmethod
+    def _pose_to_matrix(pose: list[float]) -> np.ndarray:
+        values = [float(pose[idx]) if idx < len(pose) else 0.0 for idx in range(6)]
+        transform = np.eye(4, dtype=float)
+        transform[:3, :3] = math_utils.euler_to_rotation_matrix(values[3], values[4], values[5], degrees=True)
+        transform[:3, 3] = [values[0], values[1], values[2]]
+        return transform
+
+    def _render_workspace_models(self) -> None:
+        self._workspace_element_items.clear()
+        if not self._workspace_elements:
+            return
+
+        for element in self._workspace_elements:
+            stl_path = str(element.get("cad_model", "")).strip()
+            if stl_path == "":
+                continue
+            pose = element.get("pose", [0.0] * 6)
+            transform = self._pose_to_matrix(pose)
+            item = self.load_robot_mesh(stl_path, transform, (0.65, 0.70, 0.80, 0.45))
+            if item is None:
+                continue
+            item.setGLOptions('translucent')
+            self.viewer.addItem(item)
+            self._workspace_element_items.append(item)
+
+    def _render_workspace_zones(self) -> None:
+        self._workspace_tcp_zone_items.clear()
+        self._workspace_collision_zone_items.clear()
+
+        for zone in self._workspace_tcp_zones:
+            item = self._build_primitive_item(zone, (1.0, 0.93, 0.2, 0.22))
+            if item is None:
+                continue
+            self.viewer.addItem(item)
+            self._workspace_tcp_zone_items.append(item)
+            if not self._workspace_tcp_zones_visible:
+                item.hide()
+
+        for zone in self._workspace_collision_zones:
+            item = self._build_primitive_item(zone, (1.0, 0.2, 0.2, 0.22))
+            if item is None:
+                continue
+            self.viewer.addItem(item)
+            self._workspace_collision_zone_items.append(item)
+            if not self._workspace_collision_zones_visible:
+                item.hide()
+
+    def _render_robot_axis_colliders(self) -> None:
+        self._robot_collider_items.clear()
+        if len(self.last_corrected_matrices) < 1:
+            return
+
+        for frame_index, collider in enumerate(self._axis_colliders[:6]):
+            if not bool(collider.get("enabled", True)):
+                continue
+            radius = max(0.0, float(collider.get("radius", 40.0)))
+            signed_height = float(collider.get("height", 200.0))
+            height = abs(signed_height)
+            if radius <= 0.0 or height <= 0.0:
+                continue
+
+            # Colliders robot: q1..q6 attaches to DH frames 1..6.
+            matrix_index = frame_index + 1
+            if matrix_index >= len(self.last_corrected_matrices):
+                continue
+
+            base_transform = np.array(self.last_corrected_matrices[matrix_index], dtype=float)
+            direction_axis = str(collider.get("direction_axis", "z")).strip().lower()
+            direction_axis = direction_axis if direction_axis in {"x", "y", "z"} else "z"
+            offset_axis = str(collider.get("offset_axis", "")).strip().lower()
+            offset_value = float(collider.get("offset_value", 0.0))
+
+            orientation = np.eye(4, dtype=float)
+            if direction_axis == "x":
+                orientation[:3, :3] = math_utils.rot_y(90.0, degrees=True)
+            elif direction_axis == "y":
+                orientation[:3, :3] = math_utils.rot_x(-90.0, degrees=True)
+
+            center_local = np.array([0.0, 0.0, 0.0], dtype=float)
+            if offset_axis == "x":
+                center_local[0] += offset_value
+            elif offset_axis == "y":
+                center_local[1] += offset_value
+            elif offset_axis == "z":
+                center_local[2] += offset_value
+
+            if direction_axis == "x":
+                center_local[0] += signed_height * 0.5
+            elif direction_axis == "y":
+                center_local[1] += signed_height * 0.5
+            else:
+                center_local[2] += signed_height * 0.5
+
+            translation = np.eye(4, dtype=float)
+            translation[:3, 3] = center_local
+            transform = base_transform @ translation @ orientation
+            item = self._build_primitive_item(
+                {
+                    "shape": "cylinder",
+                    "radius": radius,
+                    "height": height,
+                    "pose": [0.0] * 6,
+                },
+                (0.2, 0.55, 1.0, 0.18),
+                base_transform=transform,
+                skip_pose=True,
+            )
+            if item is None:
+                continue
+            self.viewer.addItem(item)
+            self._robot_collider_items.append(item)
+            if not self._robot_colliders_visible:
+                item.hide()
+
+    def _render_tool_colliders(self) -> None:
+        self._tool_collider_items.clear()
+        if len(self.last_corrected_matrices) == 0:
+            return
+
+        tcp_transform = np.array(self.last_corrected_matrices[-1], dtype=float)
+        for collider in self._tool_colliders:
+            if not bool(collider.get("enabled", True)):
+                continue
+            item = self._build_primitive_item(
+                collider,
+                (0.85, 0.35, 1.0, 0.24),
+                base_transform=tcp_transform,
+            )
+            if item is None:
+                continue
+            self.viewer.addItem(item)
+            self._tool_collider_items.append(item)
+            if not self._tool_colliders_visible:
+                item.hide()
+
     def _clear_and_refresh(self):
         num_frames = len(self.last_dh_matrices)
         
@@ -671,6 +879,11 @@ class Viewer3DWidget(QWidget):
             else:
                 for mesh_item in self.robot_ghost_links:
                     mesh_item.hide()
+
+        self._render_workspace_models()
+        self._render_workspace_zones()
+        self._render_robot_axis_colliders()
+        self._render_tool_colliders()
         self._render_trajectory_overlay()
 
     def update_robot_poses(self, matrices):
@@ -691,6 +904,172 @@ class Viewer3DWidget(QWidget):
                 )
                 mesh_item.setTransform(qmat)
                 self.viewer.addItem(mesh_item)
+
+    def _build_primitive_item(
+        self,
+        primitive: dict,
+        color: tuple[float, float, float, float],
+        base_transform: np.ndarray | None = None,
+        skip_pose: bool = False,
+    ) -> gl.GLMeshItem | None:
+        shape = str(primitive.get("shape", "box")).strip().lower()
+        mesh_data = self._build_primitive_mesh_data(
+            shape,
+            primitive.get("size_x", 100.0),
+            primitive.get("size_y", 100.0),
+            primitive.get("size_z", 100.0),
+            primitive.get("radius", 50.0),
+            primitive.get("height", 100.0),
+        )
+        if mesh_data is None:
+            return None
+
+        transform = np.array(base_transform if base_transform is not None else np.eye(4), dtype=float)
+        if not skip_pose:
+            pose_transform = self._pose_to_matrix(primitive.get("pose", [0.0] * 6))
+            transform = transform @ pose_transform
+
+        item = gl.GLMeshItem(meshdata=mesh_data, smooth=True, color=color, shader='shaded')
+        item.setTransform(
+            QtGui.QMatrix4x4(
+                transform[0, 0], transform[0, 1], transform[0, 2], transform[0, 3],
+                transform[1, 0], transform[1, 1], transform[1, 2], transform[1, 3],
+                transform[2, 0], transform[2, 1], transform[2, 2], transform[2, 3],
+                transform[3, 0], transform[3, 1], transform[3, 2], transform[3, 3],
+            )
+        )
+        item.setGLOptions('translucent')
+        return item
+
+    def _build_primitive_mesh_data(
+        self,
+        shape: str,
+        size_x: float,
+        size_y: float,
+        size_z: float,
+        radius: float,
+        height: float,
+    ) -> gl.MeshData | None:
+        normalized_shape = shape if shape in {"box", "cylinder", "sphere"} else "box"
+        if normalized_shape == "box":
+            sx = max(1e-6, float(size_x))
+            sy = max(1e-6, float(size_y))
+            sz = max(1e-6, float(size_z))
+            key = f"box:{sx:.4f}:{sy:.4f}:{sz:.4f}"
+            mesh_data = self._primitive_mesh_cache.get(key)
+            if mesh_data is not None:
+                return mesh_data
+
+            hx, hy, hz = sx * 0.5, sy * 0.5, sz * 0.5
+            vertices = np.array(
+                [
+                    [-hx, -hy, -hz],
+                    [hx, -hy, -hz],
+                    [hx, hy, -hz],
+                    [-hx, hy, -hz],
+                    [-hx, -hy, hz],
+                    [hx, -hy, hz],
+                    [hx, hy, hz],
+                    [-hx, hy, hz],
+                ],
+                dtype=float,
+            )
+            faces = np.array(
+                [
+                    [0, 1, 2], [0, 2, 3],  # bottom
+                    [4, 7, 6], [4, 6, 5],  # top
+                    [0, 4, 5], [0, 5, 1],  # front
+                    [1, 5, 6], [1, 6, 2],  # right
+                    [2, 6, 7], [2, 7, 3],  # back
+                    [3, 7, 4], [3, 4, 0],  # left
+                ],
+                dtype=int,
+            )
+            mesh_data = gl.MeshData(vertexes=vertices, faces=faces)
+            self._primitive_mesh_cache[key] = mesh_data
+            return mesh_data
+
+        if normalized_shape == "cylinder":
+            r = max(1e-6, float(radius))
+            h = max(1e-6, float(height))
+            segments = 24
+            key = f"cylinder:{r:.4f}:{h:.4f}:{segments}"
+            mesh_data = self._primitive_mesh_cache.get(key)
+            if mesh_data is not None:
+                return mesh_data
+
+            half_h = h * 0.5
+            vertices: list[list[float]] = []
+            for idx in range(segments):
+                angle = 2.0 * np.pi * float(idx) / float(segments)
+                x = r * np.cos(angle)
+                y = r * np.sin(angle)
+                vertices.append([x, y, -half_h])  # bottom ring
+                vertices.append([x, y, half_h])   # top ring
+
+            top_center_idx = len(vertices)
+            vertices.append([0.0, 0.0, half_h])
+            bottom_center_idx = len(vertices)
+            vertices.append([0.0, 0.0, -half_h])
+
+            faces: list[list[int]] = []
+            for idx in range(segments):
+                next_idx = (idx + 1) % segments
+                b0 = idx * 2
+                t0 = b0 + 1
+                b1 = next_idx * 2
+                t1 = b1 + 1
+                faces.append([b0, b1, t1])
+                faces.append([b0, t1, t0])
+
+                faces.append([t0, t1, top_center_idx])
+                faces.append([b1, b0, bottom_center_idx])
+
+            mesh_data = gl.MeshData(vertexes=np.array(vertices, dtype=float), faces=np.array(faces, dtype=int))
+            self._primitive_mesh_cache[key] = mesh_data
+            return mesh_data
+
+        r = max(1e-6, float(radius))
+        rows = 12
+        cols = 24
+        key = f"sphere:{r:.4f}:{rows}:{cols}"
+        mesh_data = self._primitive_mesh_cache.get(key)
+        if mesh_data is not None:
+            return mesh_data
+
+        vertices: list[list[float]] = []
+        for row in range(rows + 1):
+            phi = np.pi * float(row) / float(rows)
+            z = r * np.cos(phi)
+            xy = r * np.sin(phi)
+            for col in range(cols):
+                theta = 2.0 * np.pi * float(col) / float(cols)
+                x = xy * np.cos(theta)
+                y = xy * np.sin(theta)
+                vertices.append([x, y, z])
+
+        faces: list[list[int]] = []
+        for row in range(rows):
+            for col in range(cols):
+                next_col = (col + 1) % cols
+                a = row * cols + col
+                b = row * cols + next_col
+                c = (row + 1) * cols + col
+                d = (row + 1) * cols + next_col
+                faces.append([a, c, b])
+                faces.append([b, c, d])
+
+        mesh_data = gl.MeshData(vertexes=np.array(vertices, dtype=float), faces=np.array(faces, dtype=int))
+        self._primitive_mesh_cache[key] = mesh_data
+        return mesh_data
+
+    @staticmethod
+    def _apply_items_visibility(items: list, visible: bool) -> None:
+        for item in items:
+            if visible:
+                item.show()
+            else:
+                item.hide()
 
     def clear_robot_links(self):
         for mesh_item in self.robot_links:

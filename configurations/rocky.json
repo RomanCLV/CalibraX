@@ -132,6 +132,62 @@
         6500.0,
         9000.0
     ],
+    "axis_colliders": [
+        {
+            "axis": 0,
+            "enabled": true,
+            "radius": 120.0,
+            "height": -400.0,
+            "direction_axis": "z",
+            "offset_axis": "",
+            "offset_value": 0.0
+        },
+        {
+            "axis": 1,
+            "enabled": true,
+            "radius": 100.0,
+            "height": 655.0,
+            "direction_axis": "x",
+            "offset_axis": "",
+            "offset_value": 0.0
+        },
+        {
+            "axis": 2,
+            "enabled": true,
+            "radius": 70.0,
+            "height": 555.0,
+            "direction_axis": "y",
+            "offset_axis": "x",
+            "offset_value": 35.0
+        },
+        {
+            "axis": 3,
+            "enabled": false,
+            "radius": 70.0,
+            "height": 0.0,
+            "direction_axis": "z",
+            "offset_axis": "",
+            "offset_value": 0.0
+        },
+        {
+            "axis": 4,
+            "enabled": true,
+            "radius": 40.0,
+            "height": 80.0,
+            "direction_axis": "y",
+            "offset_axis": "",
+            "offset_value": 0.0
+        },
+        {
+            "axis": 5,
+            "enabled": false,
+            "radius": 40.0,
+            "height": 0.0,
+            "direction_axis": "z",
+            "offset_axis": "",
+            "offset_value": 0.0
+        }
+    ],
     "axis_reversed": [
         1,
         1,
@@ -191,16 +247,6 @@
         "./robot_stl/Rocky/rocky5.stl",
         "./robot_stl/Rocky/rocky6.stl"
     ],
-    "tool_cad_model": "./robot_stl/Tool/Torche_Soudure.stl",
-    "tool_cad_offset_rz": 90.0,
     "tool_profiles_directory": "./configurations/tools",
-    "selected_tool_profile": "./configurations/tools/Torche_Soudure.json",
-    "tool": [
-        56.9,
-        0.0,
-        255.9,
-        0.0,
-        23.0,
-        0.0
-    ]
+    "selected_tool_profile": "./configurations/tools/Torche_Soudure.json"
 }

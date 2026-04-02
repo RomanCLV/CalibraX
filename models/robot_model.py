@@ -1,8 +1,14 @@
 from PyQt6.QtCore import QObject, pyqtSignal
-from typing import List, Tuple
+from typing import Any, List, Tuple
 import math
 from utils.mgi import *
 import utils.math_utils as math_utils
+from models.collider_models import (
+    axis_colliders_to_dict,
+    default_axis_colliders,
+    parse_axis_colliders,
+    parse_primitive_colliders,
+)
 from models.robot_configuration_file import RobotConfigurationFile
 
 class RobotModel(QObject):
@@ -19,11 +25,16 @@ class RobotModel(QObject):
     DEFAULT_AXIS_SPEED_LIMITS: List[float] = [300.0, 225.0, 255.0, 381.0, 311.0, 492.0]
     # Estimated defaults (deg/s^3), can be refined from real traces.
     DEFAULT_AXIS_JERK_LIMITS: List[float] = [6000.0, 5000.0, 5000.0, 7500.0, 6500.0, 9000.0]
+    DEFAULT_AXIS_COLLIDERS: List[dict[str, Any]] = default_axis_colliders(6)
     DEFAULT_ROBOT_CAD_MODELS: List[str] = [f"./robot_stl/rocky{i}.stl" for i in range(7)]
     DEFAULT_TOOL_CAD_MODEL: str = ""
     DEFAULT_TOOL_CAD_OFFSET_RZ: float = 0.0
+    DEFAULT_TOOL_COLLIDERS: List[dict[str, Any]] = []
+    DEFAULT_TOOL_RETRACTABLE_Z_MM: float = 0.0
     DEFAULT_TOOL_PROFILES_DIRECTORY: str = "./configurations/tools"
     DEFAULT_SELECTED_TOOL_PROFILE: str = ""
+    DEFAULT_WORKSPACE_DIRECTORY: str = "./Workspace"
+    DEFAULT_WORKSPACE_SCENE_NAME: str = "scene"
     DEFAULT_HOME_POSITION: List[float] = [0.0, -90.0, 90.0, 0.0, 90.0, 0.0]
     POSITION_ZERO: List[float] = [0.0, -90.0, 90.0, 0.0, 0.0, 0.0]
     POSITION_TRANSPORT: List[float] = [0.0, -105.0, 156.0, 0.0, 120.0, 0.0]
@@ -47,8 +58,12 @@ class RobotModel(QObject):
     robot_cad_models_changed = pyqtSignal()
     tool_cad_model_changed = pyqtSignal()
     tool_cad_offset_rz_changed = pyqtSignal()
+    axis_colliders_changed = pyqtSignal()
     tool_profiles_directory_changed = pyqtSignal()
     selected_tool_profile_changed = pyqtSignal()
+    tool_colliders_changed = pyqtSignal()
+    tool_retractable_z_changed = pyqtSignal()
+    workspace_changed = pyqtSignal()
 
     # Joints et axes
     joints_changed = pyqtSignal()
@@ -88,8 +103,19 @@ class RobotModel(QObject):
         self.robot_cad_models: List[str] = list(RobotModel.DEFAULT_ROBOT_CAD_MODELS)
         self.tool_cad_model: str = RobotModel.DEFAULT_TOOL_CAD_MODEL
         self.tool_cad_offset_rz: float = RobotModel.DEFAULT_TOOL_CAD_OFFSET_RZ
+        self.axis_colliders: List[dict[str, Any]] = axis_colliders_to_dict(RobotModel.DEFAULT_AXIS_COLLIDERS, 6)
+        self.tool_colliders: List[dict[str, Any]] = parse_primitive_colliders(
+            RobotModel.DEFAULT_TOOL_COLLIDERS,
+            default_shape="cylinder",
+        )
+        self.tool_retractable_z_mm: float = RobotModel.DEFAULT_TOOL_RETRACTABLE_Z_MM
         self.tool_profiles_directory: str = RobotModel.DEFAULT_TOOL_PROFILES_DIRECTORY
         self.selected_tool_profile: str = RobotModel.DEFAULT_SELECTED_TOOL_PROFILE
+        self.workspace_scene_name: str = RobotModel.DEFAULT_WORKSPACE_SCENE_NAME
+        self.workspace_file_path: str = ""
+        self.workspace_cad_elements: List[dict[str, Any]] = []
+        self.workspace_tcp_zones: List[dict[str, Any]] = []
+        self.workspace_collision_zones: List[dict[str, Any]] = []
                
         # Position home du robot
         self.home_position: List[float] = list(RobotModel.DEFAULT_HOME_POSITION)
@@ -490,6 +516,36 @@ class RobotModel(QObject):
         self.tool_cad_offset_rz_changed.emit()
         self.cad_models_changed.emit()
 
+    def get_axis_colliders(self) -> list[dict[str, Any]]:
+        return axis_colliders_to_dict(self.axis_colliders, 6)
+
+    def set_axis_colliders(self, axis_colliders: list[dict[str, Any]]) -> None:
+        normalized = parse_axis_colliders(axis_colliders, 6)
+        if normalized == self.axis_colliders:
+            return
+        self.axis_colliders = normalized
+        self.axis_colliders_changed.emit()
+
+    def get_tool_colliders(self) -> list[dict[str, Any]]:
+        return [dict(collider) for collider in parse_primitive_colliders(self.tool_colliders, default_shape="cylinder")]
+
+    def set_tool_colliders(self, tool_colliders: list[dict[str, Any]]) -> None:
+        normalized = parse_primitive_colliders(tool_colliders, default_shape="cylinder")
+        if normalized == self.tool_colliders:
+            return
+        self.tool_colliders = normalized
+        self.tool_colliders_changed.emit()
+
+    def get_tool_retractable_z_mm(self) -> float:
+        return float(self.tool_retractable_z_mm)
+
+    def set_tool_retractable_z_mm(self, retractable_z_mm: float) -> None:
+        normalized = float(retractable_z_mm)
+        if normalized == self.tool_retractable_z_mm:
+            return
+        self.tool_retractable_z_mm = normalized
+        self.tool_retractable_z_changed.emit()
+
     def get_tool_profiles_directory(self) -> str:
         """Retourne le dossier des profils tool."""
         return str(self.tool_profiles_directory)
@@ -515,6 +571,102 @@ class RobotModel(QObject):
             return
         self.selected_tool_profile = normalized
         self.selected_tool_profile_changed.emit()
+
+    # ============================================================================
+    # REGION: Workspace
+    # ============================================================================
+
+    def get_workspace_scene_name(self) -> str:
+        return str(self.workspace_scene_name)
+
+    def set_workspace_scene_name(self, scene_name: str) -> None:
+        normalized = str(scene_name).strip()
+        if normalized == "":
+            normalized = RobotModel.DEFAULT_WORKSPACE_SCENE_NAME
+        if normalized == self.workspace_scene_name:
+            return
+        self.workspace_scene_name = normalized
+        self.workspace_changed.emit()
+
+    def get_workspace_file_path(self) -> str:
+        return str(self.workspace_file_path)
+
+    def set_workspace_file_path(self, file_path: str | None) -> None:
+        normalized = "" if file_path is None else str(file_path).strip()
+        if normalized == self.workspace_file_path:
+            return
+        self.workspace_file_path = normalized
+        self.workspace_changed.emit()
+
+    def get_workspace_cad_elements(self) -> list[dict[str, Any]]:
+        from models.workspace_file import parse_workspace_cad_elements
+
+        return parse_workspace_cad_elements(self.workspace_cad_elements)
+
+    def set_workspace_cad_elements(self, cad_elements: list[dict[str, Any]], emit: bool = True) -> None:
+        from models.workspace_file import parse_workspace_cad_elements
+
+        normalized = parse_workspace_cad_elements(cad_elements)
+        if normalized == self.workspace_cad_elements:
+            return
+        self.workspace_cad_elements = normalized
+        if emit:
+            self.workspace_changed.emit()
+
+    def get_workspace_tcp_zones(self) -> list[dict[str, Any]]:
+        return parse_primitive_colliders(self.workspace_tcp_zones, default_shape="box")
+
+    def set_workspace_tcp_zones(self, zones: list[dict[str, Any]], emit: bool = True) -> None:
+        normalized = parse_primitive_colliders(zones, default_shape="box")
+        if normalized == self.workspace_tcp_zones:
+            return
+        self.workspace_tcp_zones = normalized
+        if emit:
+            self.workspace_changed.emit()
+
+    def get_workspace_collision_zones(self) -> list[dict[str, Any]]:
+        return parse_primitive_colliders(self.workspace_collision_zones, default_shape="box")
+
+    def set_workspace_collision_zones(self, zones: list[dict[str, Any]], emit: bool = True) -> None:
+        normalized = parse_primitive_colliders(zones, default_shape="box")
+        if normalized == self.workspace_collision_zones:
+            return
+        self.workspace_collision_zones = normalized
+        if emit:
+            self.workspace_changed.emit()
+
+    def set_workspace_data(
+        self,
+        scene_name: str,
+        cad_elements: list[dict[str, Any]],
+        tcp_zones: list[dict[str, Any]],
+        collision_zones: list[dict[str, Any]],
+        file_path: str | None = None,
+    ) -> None:
+        from models.workspace_file import parse_workspace_cad_elements
+
+        normalized_scene_name = str(scene_name).strip() if scene_name else RobotModel.DEFAULT_WORKSPACE_SCENE_NAME
+        normalized_cad_elements = parse_workspace_cad_elements(cad_elements)
+        normalized_tcp_zones = parse_primitive_colliders(tcp_zones, default_shape="box")
+        normalized_collision_zones = parse_primitive_colliders(collision_zones, default_shape="box")
+        normalized_file_path = "" if file_path is None else str(file_path).strip()
+
+        has_changes = (
+            normalized_scene_name != self.workspace_scene_name
+            or normalized_cad_elements != self.workspace_cad_elements
+            or normalized_tcp_zones != self.workspace_tcp_zones
+            or normalized_collision_zones != self.workspace_collision_zones
+            or normalized_file_path != self.workspace_file_path
+        )
+        if not has_changes:
+            return
+
+        self.workspace_scene_name = normalized_scene_name
+        self.workspace_cad_elements = normalized_cad_elements
+        self.workspace_tcp_zones = normalized_tcp_zones
+        self.workspace_collision_zones = normalized_collision_zones
+        self.workspace_file_path = normalized_file_path
+        self.workspace_changed.emit()
 
     # ============================================================================
     # RÉGION: Getters - Configuration générale

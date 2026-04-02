@@ -12,12 +12,17 @@ class Viewer3DController(QObject):
         self._ghost_joints: list[float] = [0.0] * 6
 
         self._setup_connections()
+        self.viewer_3d_widget.update_workspace(self.robot_model)
+        self.viewer_3d_widget.update_collision_models(self.robot_model)
 
     def _setup_connections(self) -> None:
         self.robot_model.tcp_pose_changed.connect(self._update_tcp_pose)
         self.robot_model.robot_cad_models_changed.connect(self._on_robot_cad_models_changed)
         self.robot_model.tool_cad_model_changed.connect(self._on_tool_cad_model_changed)
         self.robot_model.tool_cad_offset_rz_changed.connect(self._on_tool_cad_model_changed)
+        self.robot_model.axis_colliders_changed.connect(self._on_colliders_changed)
+        self.robot_model.tool_colliders_changed.connect(self._on_colliders_changed)
+        self.robot_model.workspace_changed.connect(self._on_workspace_changed)
 
     def _update_tcp_pose(self) -> None:
         self.viewer_3d_widget.update_robot(self.robot_model)
@@ -27,6 +32,12 @@ class Viewer3DController(QObject):
 
     def _on_tool_cad_model_changed(self) -> None:
         self.viewer_3d_widget.reload_tool_cad(self.robot_model)
+
+    def _on_colliders_changed(self) -> None:
+        self.viewer_3d_widget.update_collision_models(self.robot_model)
+
+    def _on_workspace_changed(self) -> None:
+        self.viewer_3d_widget.update_workspace(self.robot_model)
 
     def show_robot_ghost(self) -> None:
         self._ghost_visible = True

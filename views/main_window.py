@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QTabWidget, QSpli
 from models.robot_model import RobotModel
 from widgets.viewer_3d_widget import Viewer3DWidget
 from views.robot_view import RobotView
+from views.workspace_view import WorkspaceView
 from views.calibration_view import CalibrationView
 from views.joint_control_view import JointControlView
 from views.cartesian_control_view import CartesianControlView
@@ -19,6 +20,7 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
 
         self.robot_view = RobotView()
+        self.workspace_view = WorkspaceView()
         self.calibration_view = CalibrationView()
         self.joint_control_view = JointControlView()
         self.cartesian_control_view = CartesianControlView()
@@ -34,6 +36,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central_widget)
 
         self.tabs.addTab(self.robot_view, "Robot")
+        self.tabs.addTab(self.workspace_view, "Workspace")
         self.tabs.addTab(self.calibration_view, "Calibration")
         self.tabs.addTab(self.joint_control_view, "Contrôle articulaire")
         self.tabs.addTab(self.cartesian_control_view, "Contrôle cartésien")
@@ -68,6 +71,10 @@ class MainWindow(QMainWindow):
         """Retourne la vue de calibration du robot"""
         return self.calibration_view
 
+    def get_workspace_view(self) -> WorkspaceView:
+        """Retourne la vue workspace."""
+        return self.workspace_view
+
     def get_joint_control_view(self) -> JointControlView:
         """Retourne la vue de contrôle articulaire"""
         return self.joint_control_view
@@ -94,8 +101,8 @@ class MainWindow(QMainWindow):
 
     def update_enabled_tabs(self, robot_has_configuration: bool) -> None:
         """Active ou désactive les onglets de contrôle en fonction de la configuration du robot"""
-        self.tabs.setTabEnabled(2, robot_has_configuration)
         self.tabs.setTabEnabled(3, robot_has_configuration)
         self.tabs.setTabEnabled(4, robot_has_configuration)
         self.tabs.setTabEnabled(5, robot_has_configuration)
+        self.tabs.setTabEnabled(6, robot_has_configuration)
     

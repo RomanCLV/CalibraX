@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 import json
 from typing import Any, TYPE_CHECKING
 
+from models.collider_models import axis_colliders_to_dict, default_axis_colliders, parse_axis_colliders
 from utils.mgi import MgiConfigKey
 
 if TYPE_CHECKING:
@@ -19,6 +20,7 @@ DEFAULT_AXIS_LIMITS: list[tuple[float, float]] = [
 ]
 DEFAULT_AXIS_SPEED_LIMITS: list[float] = [300.0, 225.0, 255.0, 381.0, 311.0, 492.0]
 DEFAULT_AXIS_JERK_LIMITS: list[float] = [6000.0, 5000.0, 5000.0, 7500.0, 6500.0, 9000.0]
+DEFAULT_AXIS_COLLIDERS: list[dict[str, Any]] = default_axis_colliders(6)
 DEFAULT_ROBOT_CAD_MODELS: list[str] = [f"./robot_stl/rocky{i}.stl" for i in range(7)]
 DEFAULT_TOOL_PROFILES_DIRECTORY: str = "./configurations/tools"
 DEFAULT_SELECTED_TOOL_PROFILE: str = ""
@@ -34,6 +36,7 @@ class RobotConfigurationFile:
     axis_limits: list[tuple[float, float]] = field(default_factory=lambda: list(DEFAULT_AXIS_LIMITS))
     axis_speed_limits: list[float] = field(default_factory=lambda: list(DEFAULT_AXIS_SPEED_LIMITS))
     axis_jerk_limits: list[float] = field(default_factory=lambda: list(DEFAULT_AXIS_JERK_LIMITS))
+    axis_colliders: list[dict[str, Any]] = field(default_factory=lambda: axis_colliders_to_dict(DEFAULT_AXIS_COLLIDERS, 6))
     axis_reversed: list[int] = field(default_factory=lambda: [1] * 6)
     joint_weights: list[float] = field(default_factory=lambda: [1.0] * 6)
     allowed_configs: set[MgiConfigKey] = field(default_factory=lambda: set(MgiConfigKey))
@@ -198,6 +201,7 @@ class RobotConfigurationFile:
             axis_limits=[tuple(v) for v in robot_model.get_axis_limits()],
             axis_speed_limits=robot_model.get_axis_speed_limits(),
             axis_jerk_limits=robot_model.get_axis_jerk_limits(),
+            axis_colliders=robot_model.get_axis_colliders(),
             axis_reversed=robot_model.get_axis_reversed(),
             joint_weights=robot_model.get_joint_weights(),
             allowed_configs=robot_model.get_allowed_configurations(),
@@ -214,6 +218,7 @@ class RobotConfigurationFile:
                 "axis_limits",
                 "axis_speed_limits",
                 "axis_jerk_limits",
+                "axis_colliders",
                 "axis_reversed",
                 "joint_weights",
                 "allowed_configs",
@@ -263,6 +268,7 @@ class RobotConfigurationFile:
             axis_limits=cls._parse_axis_limits(data.get("axis_limits")),
             axis_speed_limits=cls._parse_axis_speed_limits(data.get("axis_speed_limits")),
             axis_jerk_limits=cls._parse_axis_jerk_limits(data.get("axis_jerk_limits")),
+            axis_colliders=parse_axis_colliders(data.get("axis_colliders", DEFAULT_AXIS_COLLIDERS), 6),
             axis_reversed=cls._parse_axis_reversed(data.get("axis_reversed")),
             joint_weights=cls._parse_float_list(data.get("joint_weights"), 6, 1.0),
             allowed_configs=allowed_configs,
@@ -286,6 +292,7 @@ class RobotConfigurationFile:
             "axis_limits": self.axis_limits[:6],
             "axis_speed_limits": self.axis_speed_limits[:6],
             "axis_jerk_limits": self.axis_jerk_limits[:6],
+            "axis_colliders": axis_colliders_to_dict(self.axis_colliders, 6),
             "axis_reversed": self.axis_reversed[:6],
             "joint_weights": self.joint_weights[:6],
             "allowed_configs": [cfg.name for cfg in MgiConfigKey if cfg in self.allowed_configs],
@@ -316,6 +323,8 @@ class RobotConfigurationFile:
             robot_model.set_axis_speed_limits(self.axis_speed_limits)
         if "axis_jerk_limits" in self.present_fields:
             robot_model.set_axis_jerk_limits(self.axis_jerk_limits)
+        if "axis_colliders" in self.present_fields:
+            robot_model.set_axis_colliders(self.axis_colliders)
         if "home_position" in self.present_fields:
             robot_model.set_home_position(self.home_position)
         if "position_zero" in self.present_fields:

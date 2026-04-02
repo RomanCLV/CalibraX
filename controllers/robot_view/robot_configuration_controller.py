@@ -38,6 +38,7 @@ class RobotConfigurationController(QObject):
         self.robot_configuration_widget.dh_value_changed.connect(self._on_view_dh_value_changed)
         self.robot_configuration_widget.tool_changed.connect(self._on_view_tool_changed)
         self.robot_configuration_widget.axis_config_changed.connect(self._on_view_axis_config_changed)
+        self.robot_configuration_widget.axis_colliders_config_changed.connect(self._on_view_axis_colliders_config_changed)
         self.robot_configuration_widget.positions_config_changed.connect(self._on_view_positions_config_changed)
         self.robot_configuration_widget.position_zero_requested.connect(self._on_view_position_zero_requested)
         self.robot_configuration_widget.position_transport_requested.connect(self._on_view_position_transport_requested)
@@ -45,6 +46,8 @@ class RobotConfigurationController(QObject):
         self.robot_configuration_widget.robot_cad_models_changed.connect(self._on_view_robot_cad_models_changed)
         self.robot_configuration_widget.tool_cad_model_changed.connect(self._on_view_tool_cad_model_changed)
         self.robot_configuration_widget.tool_cad_offset_rz_changed.connect(self._on_view_tool_cad_offset_rz_changed)
+        self.robot_configuration_widget.tool_colliders_changed.connect(self._on_view_tool_colliders_changed)
+        self.robot_configuration_widget.tool_retractable_z_changed.connect(self._on_view_tool_retractable_z_changed)
         self.robot_configuration_widget.tool_profiles_directory_changed.connect(self._on_view_tool_profiles_directory_changed)
         self.robot_configuration_widget.selected_tool_profile_changed.connect(self._on_view_selected_tool_profile_changed)
         self.robot_configuration_widget.load_config_requested.connect(self._on_view_load_config_requested)
@@ -58,6 +61,7 @@ class RobotConfigurationController(QObject):
         self.update_robot_name_view()
         self.update_dh_table_view()
         self.update_axis_config_view()
+        self.update_axis_colliders_view()
         self.update_positions_config_view()
         self.update_cad_view()
         self.update_tool_view()
@@ -102,6 +106,9 @@ class RobotConfigurationController(QObject):
         self.robot_model.inhibit_auto_compute_fk_tcp(False)
         self.robot_model.compute_fk_tcp()
 
+    def _on_view_axis_colliders_config_changed(self, axis_colliders: list[dict]) -> None:
+        self.robot_model.set_axis_colliders(axis_colliders)
+
     def _on_view_positions_config_changed(
         self,
         home_position: list[float],
@@ -140,6 +147,12 @@ class RobotConfigurationController(QObject):
     def _on_view_tool_cad_offset_rz_changed(self, offset_deg: float) -> None:
         self.robot_model.set_tool_cad_offset_rz(offset_deg)
 
+    def _on_view_tool_colliders_changed(self, tool_colliders: list[dict]) -> None:
+        self.robot_model.set_tool_colliders(tool_colliders)
+
+    def _on_view_tool_retractable_z_changed(self, retractable_z_mm: float) -> None:
+        self.robot_model.set_tool_retractable_z_mm(retractable_z_mm)
+
     def _on_view_tool_profiles_directory_changed(self, directory: str) -> None:
         self.robot_model.set_tool_profiles_directory(directory)
 
@@ -170,6 +183,9 @@ class RobotConfigurationController(QObject):
             self.robot_model.get_axis_reversed(),
         )
 
+    def update_axis_colliders_view(self) -> None:
+        self.robot_configuration_widget.set_axis_colliders(self.robot_model.get_axis_colliders())
+
     def update_positions_config_view(self) -> None:
         self.robot_configuration_widget.set_positions_config(
             self.robot_model.get_home_position(),
@@ -186,6 +202,8 @@ class RobotConfigurationController(QObject):
         self.robot_configuration_widget.set_tool_profiles_directory(self.robot_model.get_tool_profiles_directory())
         self.robot_configuration_widget.set_selected_tool_profile(self.robot_model.get_selected_tool_profile())
         self.robot_configuration_widget.set_tool(self.robot_model.get_tool())
+        self.robot_configuration_widget.set_tool_colliders(self.robot_model.get_tool_colliders())
+        self.robot_configuration_widget.set_tool_retractable_z_mm(self.robot_model.get_tool_retractable_z_mm())
 
     def load_configuration(self):
         """Charger une configuration depuis un fichier json"""

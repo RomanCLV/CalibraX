@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import os
+from typing import Any
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -25,7 +26,11 @@ from PyQt6.QtWidgets import (
     QWidget,
     QCheckBox,
 )
-
+from models.collider_models import (
+    axis_colliders_to_dict,
+    default_axis_colliders,
+    parse_primitive_colliders,
+)
 from widgets.robot_view.tool_widget import ToolWidget
 from utils.mgi import RobotTool
 from models.tool_config_file import ToolConfigFile
@@ -40,6 +45,7 @@ class RobotConfigurationWidget(QWidget):
 
     dh_value_changed = pyqtSignal(int, int, str)
     tool_changed = pyqtSignal(RobotTool)
+    axis_colliders_config_changed = pyqtSignal(list)
 
     axis_config_changed = pyqtSignal(list, list, list, list)
     positions_config_changed = pyqtSignal(list, list, list)
@@ -50,6 +56,8 @@ class RobotConfigurationWidget(QWidget):
     robot_cad_models_changed = pyqtSignal(list)
     tool_cad_model_changed = pyqtSignal(str)
     tool_cad_offset_rz_changed = pyqtSignal(float)
+    tool_retractable_z_changed = pyqtSignal(float)
+    tool_colliders_changed = pyqtSignal(list)
     tool_profiles_directory_changed = pyqtSignal(str)
     selected_tool_profile_changed = pyqtSignal(str)
 
@@ -64,14 +72,44 @@ class RobotConfigurationWidget(QWidget):
     COL_POS_TRANSPORT = 1
     COL_POS_HOME = 2
 
+    COL_AXIS_COLLIDER_ENABLED = 0
+    COL_AXIS_COLLIDER_DIRECTION = 1
+    COL_AXIS_COLLIDER_RADIUS = 2
+    COL_AXIS_COLLIDER_HEIGHT = 3
+    COL_AXIS_COLLIDER_OFFSET_AXIS = 4
+    COL_AXIS_COLLIDER_OFFSET_VALUE = 5
+
+    COL_PRIM_ENABLED = 0
+    COL_PRIM_NAME = 1
+    COL_PRIM_TYPE = 2
+    COL_PRIM_X = 3
+    COL_PRIM_Y = 4
+    COL_PRIM_Z = 5
+    COL_PRIM_A = 6
+    COL_PRIM_B = 7
+    COL_PRIM_C = 8
+    COL_PRIM_SIZE_X = 9
+    COL_PRIM_SIZE_Y = 10
+    COL_PRIM_SIZE_Z = 11
+    COL_PRIM_RADIUS = 12
+    COL_PRIM_HEIGHT = 13
+
+    AXIS_COLLIDER_COUNT = 6
     ROBOT_CAD_COUNT = 7
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.axis_reversed_checkboxes: list[QCheckBox] = []
+        self.axis_collider_enabled_checkboxes: list[QCheckBox] = []
+        self.axis_collider_direction_combos: list[QComboBox] = []
         self.robot_cad_line_edits: list[QLineEdit] = []
         self.tool_cad_line_edit: QLineEdit | None = None
         self.tool_cad_offset_rz_spin: QDoubleSpinBox | None = None
+        self.tool_retractable_z_spin: QDoubleSpinBox | None = None
+        self.table_axis_colliders: QTableWidget | None = None
+        self.table_tool_colliders: QTableWidget | None = None
+        self._tool_collider_type_combos: list[QComboBox] = []
+        self._tool_collider_enabled_checkboxes: list[QCheckBox] = []
         self.tool_profiles_dir_line_edit: QLineEdit | None = None
         self.tool_profiles_combo: QComboBox | None = None
         self.tool_name_line_edit: QLineEdit | None = None
@@ -108,6 +146,7 @@ class RobotConfigurationWidget(QWidget):
         self.tabs = QTabWidget()
         self.tabs.addTab(self._build_dh_tab(), "DH Table")
         self.tabs.addTab(self._build_axis_tab(), "Parametrage des axes")
+        self.tabs.addTab(self._build_axis_colliders_tab(), "Colliders axes")
         self.tabs.addTab(self._build_positions_tab(), "Parametrage des positions")
         self.tabs.addTab(self._build_cad_tab(), "CAO")
         top_layout.addWidget(self.tabs)
@@ -120,6 +159,9 @@ class RobotConfigurationWidget(QWidget):
         self.tool_widget.tool_changed.connect(self._on_tool_changed)
         self.tool_widget_container_layout.addWidget(self.tool_widget)
         self.set_tool_profiles_directory(self._default_tools_directory(), emit_change=False)
+        self.set_tool_retractable_z_mm(0.0)
+        self.set_tool_colliders([])
+        self.set_axis_colliders(default_axis_colliders(RobotConfigurationWidget.AXIS_COLLIDER_COUNT))
 
     def _build_dh_tab(self) -> QWidget:
         tab = QWidget()
@@ -171,6 +213,56 @@ class RobotConfigurationWidget(QWidget):
         self.table_axis.itemChanged.connect(self._on_axis_item_changed)
         layout.addWidget(self.table_axis)
 
+        return tab
+
+    def _build_axis_colliders_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        self.table_axis_colliders = QTableWidget(RobotConfigurationWidget.AXIS_COLLIDER_COUNT, 6)
+        self.table_axis_colliders.setHorizontalHeaderLabels(
+            [
+                "Actif",
+                "Axe cylindre",
+                "Rayon (mm)",
+                "Hauteur (mm)",
+                "Axe decalage",
+                "Decalage (mm)",
+            ]
+        )
+        vertical_labels = [f"q{i + 1}" for i in range(6)]
+        self.table_axis_colliders.setVerticalHeaderLabels(vertical_labels)
+        self.table_axis_colliders.horizontalHeader().setDefaultSectionSize(120)
+
+        self.axis_collider_enabled_checkboxes.clear()
+        self.axis_collider_direction_combos.clear()
+        for row in range(RobotConfigurationWidget.AXIS_COLLIDER_COUNT):
+            checkbox = QCheckBox()
+            checkbox.stateChanged.connect(self._emit_axis_colliders_config_changed)
+            self.table_axis_colliders.setCellWidget(row, RobotConfigurationWidget.COL_AXIS_COLLIDER_ENABLED, checkbox)
+            self.axis_collider_enabled_checkboxes.append(checkbox)
+
+            direction_combo = QComboBox()
+            direction_combo.addItems(["X", "Y", "Z"])
+            direction_combo.setCurrentText("Z")
+            direction_combo.currentIndexChanged.connect(self._emit_axis_colliders_config_changed)
+            self.table_axis_colliders.setCellWidget(
+                row,
+                RobotConfigurationWidget.COL_AXIS_COLLIDER_DIRECTION,
+                direction_combo,
+            )
+            self.axis_collider_direction_combos.append(direction_combo)
+
+            offset_axis_combo = QComboBox()
+            offset_axis_combo.addItem("Aucun", "")
+            offset_axis_combo.addItem("X", "x")
+            offset_axis_combo.addItem("Y", "y")
+            offset_axis_combo.addItem("Z", "z")
+            offset_axis_combo.currentIndexChanged.connect(self._emit_axis_colliders_config_changed)
+            self.table_axis_colliders.setCellWidget(row, RobotConfigurationWidget.COL_AXIS_COLLIDER_OFFSET_AXIS, offset_axis_combo)
+
+        self.table_axis_colliders.itemChanged.connect(self._on_axis_colliders_item_changed)
+        layout.addWidget(self.table_axis_colliders)
         return tab
 
     def _build_positions_tab(self) -> QWidget:
@@ -312,7 +404,54 @@ class RobotConfigurationWidget(QWidget):
         self.tool_cad_offset_rz_spin.valueChanged.connect(self.tool_cad_offset_rz_changed.emit)
         tool_cad_grid.addWidget(self.tool_cad_offset_rz_spin, 1, 1)
 
+        tool_cad_grid.addWidget(QLabel("Retractable Z (mm)"), 2, 0)
+        self.tool_retractable_z_spin = QDoubleSpinBox()
+        self.tool_retractable_z_spin.setRange(0.0, 2000.0)
+        self.tool_retractable_z_spin.setDecimals(2)
+        self.tool_retractable_z_spin.setSingleStep(0.5)
+        self.tool_retractable_z_spin.valueChanged.connect(self.tool_retractable_z_changed.emit)
+        tool_cad_grid.addWidget(self.tool_retractable_z_spin, 2, 1)
+
         layout.addLayout(tool_cad_grid)
+
+        colliders_title = QLabel("Colliders tool (repere TCP)")
+        colliders_title.setStyleSheet("font-weight: bold;")
+        layout.addWidget(colliders_title)
+
+        self.table_tool_colliders = QTableWidget(0, 14)
+        self.table_tool_colliders.setHorizontalHeaderLabels(
+            [
+                "Actif",
+                "Nom",
+                "Type",
+                "X",
+                "Y",
+                "Z",
+                "A",
+                "B",
+                "C",
+                "Size X",
+                "Size Y",
+                "Size Z",
+                "Rayon",
+                "Hauteur",
+            ]
+        )
+        self.table_tool_colliders.horizontalHeader().setDefaultSectionSize(90)
+        self.table_tool_colliders.itemChanged.connect(self._on_tool_colliders_item_changed)
+        layout.addWidget(self.table_tool_colliders)
+
+        colliders_btn_layout = QHBoxLayout()
+        add_tool_collider_btn = QPushButton("Ajouter collider tool")
+        add_tool_collider_btn.clicked.connect(self._on_add_tool_collider_clicked)
+        colliders_btn_layout.addWidget(add_tool_collider_btn)
+
+        remove_tool_collider_btn = QPushButton("Supprimer collider tool")
+        remove_tool_collider_btn.clicked.connect(self._on_remove_tool_collider_clicked)
+        colliders_btn_layout.addWidget(remove_tool_collider_btn)
+        colliders_btn_layout.addStretch()
+        layout.addLayout(colliders_btn_layout)
+
         return group
 
     def _on_dh_cell_changed(self, row: int, col: int) -> None:
@@ -324,6 +463,88 @@ class RobotConfigurationWidget(QWidget):
         if item.column() in (RobotConfigurationWidget.COL_AXIS_SPEED, RobotConfigurationWidget.COL_AXIS_JERK):
             self._refresh_estimated_accel_for_row(item.row())
         self._emit_axis_config_changed()
+
+    def _on_axis_colliders_item_changed(self, _item: QTableWidgetItem) -> None:
+        self._emit_axis_colliders_config_changed()
+
+    def _on_tool_colliders_item_changed(self, _item: QTableWidgetItem) -> None:
+        self.tool_colliders_changed.emit(self.get_tool_colliders())
+
+    def _on_add_tool_collider_clicked(self) -> None:
+        self._insert_tool_collider_row(
+            {
+                "name": f"Tool collider {self.table_tool_colliders.rowCount() + 1 if self.table_tool_colliders is not None else 1}",
+                "enabled": True,
+                "shape": "cylinder",
+                "pose": [0.0] * 6,
+                "size_x": 100.0,
+                "size_y": 100.0,
+                "size_z": 100.0,
+                "radius": 40.0,
+                "height": 120.0,
+            }
+        )
+        self.tool_colliders_changed.emit(self.get_tool_colliders())
+
+    def _on_remove_tool_collider_clicked(self) -> None:
+        if self.table_tool_colliders is None:
+            return
+        row = self.table_tool_colliders.currentRow()
+        if row < 0:
+            row = self.table_tool_colliders.rowCount() - 1
+        if row < 0:
+            return
+
+        self.table_tool_colliders.blockSignals(True)
+        try:
+            self.table_tool_colliders.removeRow(row)
+            if 0 <= row < len(self._tool_collider_enabled_checkboxes):
+                self._tool_collider_enabled_checkboxes.pop(row)
+            if 0 <= row < len(self._tool_collider_type_combos):
+                self._tool_collider_type_combos.pop(row)
+        finally:
+            self.table_tool_colliders.blockSignals(False)
+
+        self.tool_colliders_changed.emit(self.get_tool_colliders())
+
+    def _insert_tool_collider_row(self, collider: dict[str, Any]) -> None:
+        if self.table_tool_colliders is None:
+            return
+
+        row = self.table_tool_colliders.rowCount()
+        self.table_tool_colliders.insertRow(row)
+
+        enabled_checkbox = QCheckBox()
+        enabled_checkbox.setChecked(bool(collider.get("enabled", True)))
+        enabled_checkbox.stateChanged.connect(lambda _state: self.tool_colliders_changed.emit(self.get_tool_colliders()))
+        self.table_tool_colliders.setCellWidget(row, RobotConfigurationWidget.COL_PRIM_ENABLED, enabled_checkbox)
+        self._tool_collider_enabled_checkboxes.append(enabled_checkbox)
+
+        type_combo = QComboBox()
+        type_combo.addItems(["box", "cylinder", "sphere"])
+        shape_value = str(collider.get("shape", "cylinder")).strip().lower()
+        type_combo.setCurrentText(shape_value if shape_value in {"box", "cylinder", "sphere"} else "cylinder")
+        type_combo.currentIndexChanged.connect(lambda _idx: self.tool_colliders_changed.emit(self.get_tool_colliders()))
+        self.table_tool_colliders.setCellWidget(row, RobotConfigurationWidget.COL_PRIM_TYPE, type_combo)
+        self._tool_collider_type_combos.append(type_combo)
+
+        pose = collider.get("pose", [0.0] * 6)
+        cells = {
+            RobotConfigurationWidget.COL_PRIM_NAME: str(collider.get("name", f"Tool collider {row + 1}")),
+            RobotConfigurationWidget.COL_PRIM_X: str(float(pose[0] if len(pose) > 0 else 0.0)),
+            RobotConfigurationWidget.COL_PRIM_Y: str(float(pose[1] if len(pose) > 1 else 0.0)),
+            RobotConfigurationWidget.COL_PRIM_Z: str(float(pose[2] if len(pose) > 2 else 0.0)),
+            RobotConfigurationWidget.COL_PRIM_A: str(float(pose[3] if len(pose) > 3 else 0.0)),
+            RobotConfigurationWidget.COL_PRIM_B: str(float(pose[4] if len(pose) > 4 else 0.0)),
+            RobotConfigurationWidget.COL_PRIM_C: str(float(pose[5] if len(pose) > 5 else 0.0)),
+            RobotConfigurationWidget.COL_PRIM_SIZE_X: str(float(collider.get("size_x", 100.0))),
+            RobotConfigurationWidget.COL_PRIM_SIZE_Y: str(float(collider.get("size_y", 100.0))),
+            RobotConfigurationWidget.COL_PRIM_SIZE_Z: str(float(collider.get("size_z", 100.0))),
+            RobotConfigurationWidget.COL_PRIM_RADIUS: str(float(collider.get("radius", 40.0))),
+            RobotConfigurationWidget.COL_PRIM_HEIGHT: str(float(collider.get("height", 120.0))),
+        }
+        for column, value in cells.items():
+            self.table_tool_colliders.setItem(row, column, QTableWidgetItem(value))
 
     def _on_positions_item_changed(self, _item: QTableWidgetItem) -> None:
         self.positions_config_changed.emit(
@@ -490,6 +711,10 @@ class RobotConfigurationWidget(QWidget):
 
         self.set_tool_cad_offset_rz(profile.tool_cad_offset_rz)
         self.tool_cad_offset_rz_changed.emit(profile.tool_cad_offset_rz)
+        self.set_tool_retractable_z_mm(profile.retractable_z_mm)
+        self.tool_retractable_z_changed.emit(profile.retractable_z_mm)
+        self.set_tool_colliders(profile.tool_colliders)
+        self.tool_colliders_changed.emit(self.get_tool_colliders())
         return True
 
     def _on_save_tool_profile(self) -> None:
@@ -542,6 +767,8 @@ class RobotConfigurationWidget(QWidget):
             self.get_tool(),
             self.get_tool_cad_model(),
             self.get_tool_cad_offset_rz(),
+            self.get_tool_colliders(),
+            self.get_tool_retractable_z_mm(),
         )
         try:
             profile.save(output_path)
@@ -569,6 +796,12 @@ class RobotConfigurationWidget(QWidget):
         self.set_tool_cad_offset_rz(0.0)
         if emit_signals:
             self.tool_cad_offset_rz_changed.emit(0.0)
+        self.set_tool_retractable_z_mm(0.0)
+        if emit_signals:
+            self.tool_retractable_z_changed.emit(0.0)
+        self.set_tool_colliders([])
+        if emit_signals:
+            self.tool_colliders_changed.emit([])
 
     @staticmethod
     def _safe_float(value: str, default: float = 0.0) -> float:
@@ -581,6 +814,17 @@ class RobotConfigurationWidget(QWidget):
             return float(stripped)
         except (TypeError, ValueError):
             return default
+
+    @staticmethod
+    def _set_combo_by_data(combo: QComboBox | None, target_data: str, fallback_data: str = "") -> None:
+        if combo is None:
+            return
+        index = combo.findData(target_data)
+        if index < 0:
+            index = combo.findData(fallback_data)
+        if index < 0:
+            index = 0
+        combo.setCurrentIndex(index)
 
     def _cell_to_float(self, table: QTableWidget, row: int, column: int, default: float = 0.0) -> float:
         item = table.item(row, column)
@@ -677,6 +921,9 @@ class RobotConfigurationWidget(QWidget):
             self.get_axis_reversed(),
         )
 
+    def _emit_axis_colliders_config_changed(self) -> None:
+        self.axis_colliders_config_changed.emit(self.get_axis_colliders())
+
     def set_robot_name(self, name: str) -> None:
         self.line_edit_robot_name.setText(name)
 
@@ -755,6 +1002,115 @@ class RobotConfigurationWidget(QWidget):
             reversed_values.append(-1 if checkbox.isChecked() else 1)
         return reversed_values
 
+    def set_axis_colliders(self, axis_colliders: list[dict[str, Any]]) -> None:
+        if self.table_axis_colliders is None:
+            return
+
+        normalized = axis_colliders_to_dict(
+            axis_colliders if axis_colliders else default_axis_colliders(RobotConfigurationWidget.AXIS_COLLIDER_COUNT),
+            RobotConfigurationWidget.AXIS_COLLIDER_COUNT,
+        )
+        self.table_axis_colliders.blockSignals(True)
+        try:
+            for row in range(RobotConfigurationWidget.AXIS_COLLIDER_COUNT):
+                collider = normalized[row] if row < len(normalized) else {
+                    "enabled": True,
+                    "direction_axis": "z",
+                    "radius": 40.0,
+                    "height": 200.0,
+                    "offset_axis": "",
+                    "offset_value": 0.0,
+                }
+                enabled = bool(collider.get("enabled", True))
+                direction_axis = str(collider.get("direction_axis", "z")).strip().lower()
+                radius = float(collider.get("radius", 40.0))
+                height = float(collider.get("height", 200.0))
+                offset_axis = str(collider.get("offset_axis", "")).strip().lower()
+                offset_value = float(collider.get("offset_value", 0.0))
+
+                checkbox = self.axis_collider_enabled_checkboxes[row]
+                checkbox.blockSignals(True)
+                checkbox.setChecked(enabled)
+                checkbox.blockSignals(False)
+
+                direction_combo = self.axis_collider_direction_combos[row]
+                direction_combo.blockSignals(True)
+                direction_combo.setCurrentText(direction_axis.upper() if direction_axis in {"x", "y", "z"} else "Z")
+                direction_combo.blockSignals(False)
+
+                offset_axis_combo = self.table_axis_colliders.cellWidget(
+                    row,
+                    RobotConfigurationWidget.COL_AXIS_COLLIDER_OFFSET_AXIS,
+                )
+                if isinstance(offset_axis_combo, QComboBox):
+                    offset_axis_combo.blockSignals(True)
+                    self._set_combo_by_data(offset_axis_combo, offset_axis, "")
+                    offset_axis_combo.blockSignals(False)
+
+                self.table_axis_colliders.setItem(
+                    row,
+                    RobotConfigurationWidget.COL_AXIS_COLLIDER_RADIUS,
+                    QTableWidgetItem(str(radius)),
+                )
+                self.table_axis_colliders.setItem(
+                    row,
+                    RobotConfigurationWidget.COL_AXIS_COLLIDER_HEIGHT,
+                    QTableWidgetItem(str(height)),
+                )
+                self.table_axis_colliders.setItem(
+                    row,
+                    RobotConfigurationWidget.COL_AXIS_COLLIDER_OFFSET_VALUE,
+                    QTableWidgetItem(str(offset_value)),
+                )
+        finally:
+            self.table_axis_colliders.blockSignals(False)
+
+    def get_axis_colliders(self) -> list[dict[str, Any]]:
+        if self.table_axis_colliders is None:
+            return axis_colliders_to_dict(
+                default_axis_colliders(RobotConfigurationWidget.AXIS_COLLIDER_COUNT),
+                RobotConfigurationWidget.AXIS_COLLIDER_COUNT,
+            )
+
+        values: list[dict[str, Any]] = []
+        for row in range(RobotConfigurationWidget.AXIS_COLLIDER_COUNT):
+            enabled = self.axis_collider_enabled_checkboxes[row].isChecked()
+            direction_axis = self.axis_collider_direction_combos[row].currentText().strip().lower()
+
+            offset_axis_widget = self.table_axis_colliders.cellWidget(row, RobotConfigurationWidget.COL_AXIS_COLLIDER_OFFSET_AXIS)
+            offset_axis = str(offset_axis_widget.currentData()) if isinstance(offset_axis_widget, QComboBox) else ""
+
+            radius = self._cell_to_float(
+                self.table_axis_colliders,
+                row,
+                RobotConfigurationWidget.COL_AXIS_COLLIDER_RADIUS,
+                40.0,
+            )
+            height = self._cell_to_float(
+                self.table_axis_colliders,
+                row,
+                RobotConfigurationWidget.COL_AXIS_COLLIDER_HEIGHT,
+                200.0,
+            )
+            offset_value = self._cell_to_float(
+                self.table_axis_colliders,
+                row,
+                RobotConfigurationWidget.COL_AXIS_COLLIDER_OFFSET_VALUE,
+                0.0,
+            )
+            values.append(
+                {
+                    "axis": row,
+                    "enabled": enabled,
+                    "direction_axis": direction_axis if direction_axis in {"x", "y", "z"} else "z",
+                    "radius": max(0.0, radius),
+                    "height": float(height),
+                    "offset_axis": offset_axis if offset_axis in {"x", "y", "z"} else "",
+                    "offset_value": float(offset_value),
+                }
+            )
+        return values
+
     def set_positions_config(
         self,
         home_position: list[float],
@@ -812,6 +1168,73 @@ class RobotConfigurationWidget(QWidget):
         if self.tool_cad_offset_rz_spin is None:
             return 0.0
         return float(self.tool_cad_offset_rz_spin.value())
+
+    def set_tool_retractable_z_mm(self, retractable_z_mm: float) -> None:
+        if self.tool_retractable_z_spin is None:
+            return
+        self.tool_retractable_z_spin.blockSignals(True)
+        self.tool_retractable_z_spin.setValue(float(retractable_z_mm))
+        self.tool_retractable_z_spin.blockSignals(False)
+
+    def get_tool_retractable_z_mm(self) -> float:
+        if self.tool_retractable_z_spin is None:
+            return 0.0
+        return float(self.tool_retractable_z_spin.value())
+
+    def set_tool_colliders(self, tool_colliders: list[dict[str, Any]]) -> None:
+        if self.table_tool_colliders is None:
+            return
+        normalized = parse_primitive_colliders(tool_colliders, default_shape="cylinder")
+        self.table_tool_colliders.blockSignals(True)
+        try:
+            self.table_tool_colliders.setRowCount(0)
+            self._tool_collider_enabled_checkboxes.clear()
+            self._tool_collider_type_combos.clear()
+            for collider in normalized:
+                self._insert_tool_collider_row(collider)
+        finally:
+            self.table_tool_colliders.blockSignals(False)
+
+    def get_tool_colliders(self) -> list[dict[str, Any]]:
+        if self.table_tool_colliders is None:
+            return []
+        values: list[dict[str, Any]] = []
+        for row in range(self.table_tool_colliders.rowCount()):
+            enabled_widget = self.table_tool_colliders.cellWidget(row, RobotConfigurationWidget.COL_PRIM_ENABLED)
+            enabled = bool(enabled_widget.isChecked()) if isinstance(enabled_widget, QCheckBox) else True
+
+            shape_widget = self.table_tool_colliders.cellWidget(row, RobotConfigurationWidget.COL_PRIM_TYPE)
+            shape = str(shape_widget.currentText()).strip().lower() if isinstance(shape_widget, QComboBox) else "cylinder"
+
+            pose = [
+                self._cell_to_float(self.table_tool_colliders, row, RobotConfigurationWidget.COL_PRIM_X, 0.0),
+                self._cell_to_float(self.table_tool_colliders, row, RobotConfigurationWidget.COL_PRIM_Y, 0.0),
+                self._cell_to_float(self.table_tool_colliders, row, RobotConfigurationWidget.COL_PRIM_Z, 0.0),
+                self._cell_to_float(self.table_tool_colliders, row, RobotConfigurationWidget.COL_PRIM_A, 0.0),
+                self._cell_to_float(self.table_tool_colliders, row, RobotConfigurationWidget.COL_PRIM_B, 0.0),
+                self._cell_to_float(self.table_tool_colliders, row, RobotConfigurationWidget.COL_PRIM_C, 0.0),
+            ]
+
+            name_item = self.table_tool_colliders.item(row, RobotConfigurationWidget.COL_PRIM_NAME)
+            name = name_item.text().strip() if name_item is not None else f"Tool collider {row + 1}"
+            if name == "":
+                name = f"Tool collider {row + 1}"
+
+            values.append(
+                {
+                    "name": name,
+                    "enabled": enabled,
+                    "shape": shape,
+                    "pose": pose,
+                    "size_x": max(0.0, self._cell_to_float(self.table_tool_colliders, row, RobotConfigurationWidget.COL_PRIM_SIZE_X, 100.0)),
+                    "size_y": max(0.0, self._cell_to_float(self.table_tool_colliders, row, RobotConfigurationWidget.COL_PRIM_SIZE_Y, 100.0)),
+                    "size_z": max(0.0, self._cell_to_float(self.table_tool_colliders, row, RobotConfigurationWidget.COL_PRIM_SIZE_Z, 100.0)),
+                    "radius": max(0.0, self._cell_to_float(self.table_tool_colliders, row, RobotConfigurationWidget.COL_PRIM_RADIUS, 40.0)),
+                    "height": max(0.0, self._cell_to_float(self.table_tool_colliders, row, RobotConfigurationWidget.COL_PRIM_HEIGHT, 120.0)),
+                }
+            )
+
+        return parse_primitive_colliders(values, default_shape="cylinder")
 
     def set_tool_profiles_directory(self, directory: str | None, emit_change: bool = False) -> None:
         if self.tool_profiles_dir_line_edit is None:
