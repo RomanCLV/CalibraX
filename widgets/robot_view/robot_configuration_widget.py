@@ -414,7 +414,7 @@ class RobotConfigurationWidget(QWidget):
 
         layout.addLayout(tool_cad_grid)
 
-        colliders_title = QLabel("Colliders tool (repere TCP)")
+        colliders_title = QLabel("Colliders tool (repere flange / axe 6)")
         colliders_title.setStyleSheet("font-weight: bold;")
         layout.addWidget(colliders_title)
 

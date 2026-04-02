@@ -833,14 +833,18 @@ class Viewer3DWidget(QWidget):
         if len(self.last_corrected_matrices) == 0:
             return
 
-        tcp_transform = np.array(self.last_corrected_matrices[-1], dtype=float)
+        matrix_index = self._resolve_tool_attachment_matrix_index(self.last_corrected_matrices)
+        if matrix_index is None:
+            matrix_index = len(self.last_corrected_matrices) - 1
+        flange_transform = np.array(self.last_corrected_matrices[matrix_index], dtype=float)
         for collider in self._tool_colliders:
             if not bool(collider.get("enabled", True)):
                 continue
             item = self._build_primitive_item(
                 collider,
                 (0.85, 0.35, 1.0, 0.24),
-                base_transform=tcp_transform,
+                base_transform=flange_transform,
+                anchor_to_positive_z=True,
             )
             if item is None:
                 continue
@@ -911,6 +915,7 @@ class Viewer3DWidget(QWidget):
         color: tuple[float, float, float, float],
         base_transform: np.ndarray | None = None,
         skip_pose: bool = False,
+        anchor_to_positive_z: bool = False,
     ) -> gl.GLMeshItem | None:
         shape = str(primitive.get("shape", "box")).strip().lower()
         mesh_data = self._build_primitive_mesh_data(
@@ -928,6 +933,12 @@ class Viewer3DWidget(QWidget):
         if not skip_pose:
             pose_transform = self._pose_to_matrix(primitive.get("pose", [0.0] * 6))
             transform = transform @ pose_transform
+            if anchor_to_positive_z:
+                anchor_offset = self._tool_collider_local_anchor_offset(primitive, shape)
+                if np.linalg.norm(anchor_offset) > 1e-12:
+                    anchor_transform = np.eye(4, dtype=float)
+                    anchor_transform[:3, 3] = anchor_offset
+                    transform = transform @ anchor_transform
 
         item = gl.GLMeshItem(meshdata=mesh_data, smooth=True, color=color, shader='shaded')
         item.setTransform(
@@ -940,6 +951,17 @@ class Viewer3DWidget(QWidget):
         )
         item.setGLOptions('translucent')
         return item
+
+    @staticmethod
+    def _tool_collider_local_anchor_offset(primitive: dict, shape: str) -> np.ndarray:
+        normalized_shape = shape if shape in {"box", "cylinder", "sphere"} else "box"
+        if normalized_shape == "box":
+            distance = max(0.0, float(primitive.get("size_z", 100.0))) * 0.5
+        elif normalized_shape == "cylinder":
+            distance = max(0.0, float(primitive.get("height", 100.0))) * 0.5
+        else:
+            distance = max(0.0, float(primitive.get("radius", 50.0)))
+        return np.array([0.0, 0.0, distance], dtype=float)
 
     def _build_primitive_mesh_data(
         self,
