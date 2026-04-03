@@ -110,3 +110,11 @@ class WorkspaceModel(QObject):
         self.workspace_file_path = normalized_file_path
         self.workspace_changed.emit()
 
+    def clear_workspace(self) -> None:
+        self.set_workspace_data(
+            WorkspaceModel.DEFAULT_WORKSPACE_SCENE_NAME,
+            [],
+            [],
+            [],
+            file_path="",
+        )

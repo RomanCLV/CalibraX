@@ -36,6 +36,7 @@ class WorkspaceController(QObject):
         self.workspace_widget.workspace_collision_zones_changed.connect(self._on_workspace_collision_zones_changed)
         self.workspace_widget.workspace_save_requested.connect(self._on_save_workspace_requested)
         self.workspace_widget.workspace_load_requested.connect(self._on_load_workspace_requested)
+        self.workspace_widget.workspace_clear_requested.connect(self._on_clear_workspace_requested)
 
     def _update_workspace_view(self) -> None:
         if self._updating_from_view:
@@ -117,6 +118,9 @@ class WorkspaceController(QObject):
             return
 
         self.load_workspace_from_path(selected_path, show_errors=True)
+
+    def _on_clear_workspace_requested(self) -> None:
+        self.workspace_model.clear_workspace()
 
     def _workspace_directory(self) -> str:
         root_dir = os.getcwd()

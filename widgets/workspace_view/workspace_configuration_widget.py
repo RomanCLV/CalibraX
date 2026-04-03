@@ -29,6 +29,7 @@ class WorkspaceConfigurationWidget(QWidget):
     scene_name_changed = pyqtSignal(str)
     workspace_save_requested = pyqtSignal()
     workspace_load_requested = pyqtSignal()
+    workspace_clear_requested = pyqtSignal()
     workspace_cad_elements_changed = pyqtSignal(list)
     workspace_tcp_zones_changed = pyqtSignal(list)
     workspace_collision_zones_changed = pyqtSignal(list)
@@ -100,6 +101,10 @@ class WorkspaceConfigurationWidget(QWidget):
         load_btn = QPushButton("Charger scene")
         load_btn.clicked.connect(self.workspace_load_requested.emit)
         layout.addWidget(load_btn, 0, 3)
+
+        clear_btn = QPushButton("Vider scene")
+        clear_btn.clicked.connect(self.workspace_clear_requested.emit)
+        layout.addWidget(clear_btn, 0, 4)
 
 
         return group
