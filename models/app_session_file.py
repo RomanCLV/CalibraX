@@ -11,6 +11,7 @@ class ViewerDisplayState:
     transparency_enabled: bool = False
     show_axes: bool = True
     frames_visibility: list[bool] = field(default_factory=list)
+    workspace_frames_visibility: list[bool] = field(default_factory=list)
     workspace_tcp_zones_visible: bool = True
     workspace_collision_zones_visible: bool = True
     robot_colliders_visible: bool = True
@@ -21,11 +22,14 @@ class ViewerDisplayState:
         payload = data if isinstance(data, dict) else {}
         raw_frames = payload.get("frames_visibility", [])
         frames_visibility = [bool(value) for value in raw_frames] if isinstance(raw_frames, list) else []
+        raw_workspace_frames = payload.get("workspace_frames_visibility", [])
+        workspace_frames_visibility = [bool(value) for value in raw_workspace_frames] if isinstance(raw_workspace_frames, list) else []
         return cls(
             cad_visible=bool(payload.get("cad_visible", True)),
             transparency_enabled=bool(payload.get("transparency_enabled", False)),
             show_axes=bool(payload.get("show_axes", True)),
             frames_visibility=frames_visibility,
+            workspace_frames_visibility=workspace_frames_visibility,
             workspace_tcp_zones_visible=bool(payload.get("workspace_tcp_zones_visible", True)),
             workspace_collision_zones_visible=bool(payload.get("workspace_collision_zones_visible", True)),
             robot_colliders_visible=bool(payload.get("robot_colliders_visible", True)),

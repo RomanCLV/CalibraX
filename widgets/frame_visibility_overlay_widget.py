@@ -19,6 +19,8 @@ class FrameVisibilityOverlayWidget(QWidget):
         self._collapsed = False
         self._overlay_width = 180
         self._max_visible_items = 10
+        self._title = "Frames"
+        self._labels: list[str] = []
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -91,16 +93,30 @@ class FrameVisibilityOverlayWidget(QWidget):
     def is_collapsed(self) -> bool:
         return self._collapsed
 
-    def set_frames_visibility(self, frames_visibility: list[bool]) -> None:
+    def set_title(self, title: str) -> None:
+        normalized = str(title).strip() or "Frames"
+        if self._title == normalized:
+            return
+        self._title = normalized
+        self._refresh_ui()
+        self.geometry_changed.emit()
+
+    def set_frames_visibility(self, frames_visibility: list[bool], labels: list[str] | None = None) -> None:
         count = len(frames_visibility)
+        self._labels = [str(label) for label in labels] if isinstance(labels, list) else []
 
         if self.list_widget.count() != count:
             self.list_widget.clear()
             for i in range(count):
-                item = QListWidgetItem(f"Frame {i}")
+                item = QListWidgetItem(self._label_for_index(i))
                 item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
                 item.setSizeHint(QSize(0, 28))
                 self.list_widget.addItem(item)
+        else:
+            for i in range(count):
+                item = self.list_widget.item(i)
+                if item is not None:
+                    item.setText(self._label_for_index(i))
 
         font_bold = QFont()
         font_bold.setBold(True)
@@ -127,7 +143,7 @@ class FrameVisibilityOverlayWidget(QWidget):
 
     def _refresh_ui(self) -> None:
         count = self.list_widget.count()
-        self.toggle_button.setText(f"Frames ({count}) {'▸' if self._collapsed else '▾'}")
+        self.toggle_button.setText(f"{self._title} ({count}) {'▸' if self._collapsed else '▾'}")
 
         has_items = count > 0
         list_visible = has_items and not self._collapsed
@@ -143,3 +159,10 @@ class FrameVisibilityOverlayWidget(QWidget):
         self.setFixedWidth(self._overlay_width)
         self.adjustSize()
         self.setFixedHeight(self.sizeHint().height())
+
+    def _label_for_index(self, index: int) -> str:
+        if 0 <= index < len(self._labels):
+            label = self._labels[index].strip()
+            if label:
+                return label
+        return f"Frame {index}"

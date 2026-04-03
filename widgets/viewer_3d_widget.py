@@ -44,6 +44,7 @@ class Viewer3DWidget(QWidget):
         self._robot_ghost_link_roles: list[str] = []
         self.last_invert_table = []
         self.frames_visibility: list[bool] = []
+        self.workspace_frames_visibility: list[bool] = []
         self.show_axes = True
         self._cad_loaded = False
         self._cad_showed = True
@@ -55,6 +56,8 @@ class Viewer3DWidget(QWidget):
         self._missing_mesh_paths: set[str] = set()
         self._primitive_mesh_cache: dict[str, gl.MeshData] = {}
         self._workspace_elements: list[dict] = []
+        self._workspace_frame_matrices: list[np.ndarray] = []
+        self._workspace_frame_labels: list[str] = []
         self._workspace_tcp_zones: list[dict] = []
         self._workspace_collision_zones: list[dict] = []
         self._axis_colliders: list[dict] = []
@@ -87,7 +90,10 @@ class Viewer3DWidget(QWidget):
 
         # --- LISTE DES REPERES (Overlay en haut a droite) ---
         self.frame_overlay = FrameVisibilityOverlayWidget(self.viewer)
+        self.frame_overlay.set_title("Frames robot")
         self.frame_list = self.frame_overlay.list_widget
+        self.workspace_frame_overlay = FrameVisibilityOverlayWidget(self.viewer)
+        self.workspace_frame_overlay.set_title("Frames scene")
 
         # --- LABEL EN HAUT A GAUCHE ---
         self.msg_label = QLabel("", self.viewer)  # Parent = viewer pour l'overlay
@@ -137,6 +143,8 @@ class Viewer3DWidget(QWidget):
 
         self.frame_overlay.frame_clicked.connect(self.on_frame_clicked)
         self.frame_overlay.geometry_changed.connect(self._position_overlays)
+        self.workspace_frame_overlay.frame_clicked.connect(self.on_workspace_frame_clicked)
+        self.workspace_frame_overlay.geometry_changed.connect(self._position_overlays)
         self.btn_toggle_cad.clicked.connect(self._on_cad_button_clicked)
         self.btn_toggle_transparency.clicked.connect(self._on_transparency_button_clicked)
         self.btn_toggle_axes.clicked.connect(self._on_axes_button_clicked)
@@ -151,6 +159,9 @@ class Viewer3DWidget(QWidget):
         margin = 10
         frame_overlay_x = max(margin, self.viewer.width() - self.frame_overlay.width() - margin)
         self.frame_overlay.move(frame_overlay_x, margin)
+        workspace_overlay_y = margin + (self.frame_overlay.height() + margin if self.frame_overlay.isVisible() else 0)
+        workspace_overlay_x = max(margin, self.viewer.width() - self.workspace_frame_overlay.width() - margin)
+        self.workspace_frame_overlay.move(workspace_overlay_x, workspace_overlay_y)
         self.msg_label.move(margin, margin)
 
     def resizeEvent(self, event):
@@ -192,6 +203,7 @@ class Viewer3DWidget(QWidget):
             transparency_enabled=bool(self.transparency_enabled),
             show_axes=bool(self.show_axes),
             frames_visibility=[bool(v) for v in self.frames_visibility],
+            workspace_frames_visibility=[bool(v) for v in self.workspace_frames_visibility],
             workspace_tcp_zones_visible=bool(self._workspace_tcp_zones_visible),
             workspace_collision_zones_visible=bool(self._workspace_collision_zones_visible),
             robot_colliders_visible=bool(self._robot_colliders_visible),
@@ -203,6 +215,7 @@ class Viewer3DWidget(QWidget):
         self.transparency_enabled = bool(state.transparency_enabled)
         self.show_axes = bool(state.show_axes)
         self.frames_visibility = [bool(v) for v in state.frames_visibility]
+        self.workspace_frames_visibility = [bool(v) for v in state.workspace_frames_visibility]
         self._workspace_tcp_zones_visible = bool(state.workspace_tcp_zones_visible)
         self._workspace_collision_zones_visible = bool(state.workspace_collision_zones_visible)
         self._robot_colliders_visible = bool(state.robot_colliders_visible)
@@ -224,6 +237,13 @@ class Viewer3DWidget(QWidget):
         self._clear_and_refresh()
         self._emit_display_state_changed()
     
+    def on_workspace_frame_clicked(self, index: int):
+        if index < 0 or index >= len(self.workspace_frames_visibility):
+            return
+        self.workspace_frames_visibility[index] = not self.workspace_frames_visibility[index]
+        self._clear_and_refresh()
+        self._emit_display_state_changed()
+
     def _on_cad_button_clicked(self):
         self.set_robot_visibility(not self._cad_showed)
 
@@ -234,6 +254,8 @@ class Viewer3DWidget(QWidget):
         self.show_axes = not self.show_axes
         for i in range(len(self.frames_visibility)):
             self.frames_visibility[i] = self.show_axes
+        for i in range(len(self.workspace_frames_visibility)):
+            self.workspace_frames_visibility[i] = self.show_axes
         self._clear_and_refresh()
         self._emit_display_state_changed()
 
@@ -290,6 +312,10 @@ class Viewer3DWidget(QWidget):
                 item.setForeground(Qt.GlobalColor.darkGray)  # Gris foncé en normal
 
         self.frame_overlay.set_frames_visibility(self.frames_visibility)
+        self.workspace_frame_overlay.set_frames_visibility(
+            self.workspace_frames_visibility,
+            self._workspace_frame_labels,
+        )
 
     def add_grid(self):
         grid = gl.GLGridItem()
@@ -498,6 +524,11 @@ class Viewer3DWidget(QWidget):
             if i < len(self.frames_visibility) and self.frames_visibility[i]:
                 self.draw_frame(T)
     
+    def draw_workspace_frames(self) -> None:
+        for i, transform in enumerate(self._workspace_frame_matrices):
+            if i < len(self.workspace_frames_visibility) and self.workspace_frames_visibility[i]:
+                self.draw_frame(transform)
+
     def load_cad(self, robot_model: RobotModel, tool_model: ToolModel | None = None):
         self._robot_model = robot_model
         self._tool_model = tool_model
@@ -804,15 +835,22 @@ class Viewer3DWidget(QWidget):
 
     def _render_workspace_models(self) -> None:
         self._workspace_element_items.clear()
+        self._workspace_frame_matrices = []
+        self._workspace_frame_labels = []
         if not self._workspace_elements:
             return
 
-        for element in self._workspace_elements:
+        for element_index, element in enumerate(self._workspace_elements):
             stl_path = str(element.get("cad_model", "")).strip()
-            if stl_path == "":
-                continue
             pose = element.get("pose", [0.0] * 6)
             transform = self._pose_to_matrix(pose)
+            element_name = str(element.get("name", f"Element {element_index + 1}")).strip()
+            if element_name == "":
+                element_name = f"Element {element_index + 1}"
+            self._workspace_frame_matrices.append(transform)
+            self._workspace_frame_labels.append(element_name)
+            if stl_path == "":
+                continue
             item = self.load_robot_mesh(stl_path, transform, (0.65, 0.70, 0.80, 0.45))
             if item is None:
                 continue
@@ -930,10 +968,11 @@ class Viewer3DWidget(QWidget):
             self.frames_visibility = [True] * num_frames
         
         # Mettre à jour l'interface de la liste (affichage gras/normal)
-        self.update_frame_list_ui()
         
         # Effacer et redessiner la scène
         self.clear_viewer()
+        self._workspace_frame_matrices = []
+        self._workspace_frame_labels = []
         
         # Afficher les repères selon la visibilité
         if self.show_axes:
@@ -954,10 +993,15 @@ class Viewer3DWidget(QWidget):
                     mesh_item.hide()
 
         self._render_workspace_models()
+        if len(self.workspace_frames_visibility) != len(self._workspace_frame_matrices):
+            self.workspace_frames_visibility = [True] * len(self._workspace_frame_matrices)
+        if self.show_axes:
+            self.draw_workspace_frames()
         self._render_workspace_zones()
         self._render_robot_axis_colliders()
         self._render_tool_colliders()
         self._render_trajectory_overlay()
+        self.update_frame_list_ui()
 
     def update_robot_poses(self, matrices):
         tool_offset_rz = self._resolve_tool_cad_offset_rz()
