@@ -24,10 +24,12 @@ class CartesianWidgetController(QObject):
         self.cartesian_control_widget = cartesian_control_widget
         self.new_target = [0.0] * 6
         self._setup_connections()
+        self._apply_cartesian_slider_limits()
 
 
     def _setup_connections(self):
         self.robot_model.tcp_pose_changed.connect(self._on_model_tcp_changed)
+        self.robot_model.cartesian_slider_limits_changed.connect(self._apply_cartesian_slider_limits)
         self.workspace_model.workspace_changed.connect(self._on_model_tcp_changed)
         self.cartesian_control_widget.cartesian_value_changed.connect(self._on_view_cartesian_value_changed)
         self.cartesian_control_widget.reference_frame_changed.connect(self._on_reference_frame_changed)
@@ -59,6 +61,10 @@ class CartesianWidgetController(QObject):
 
     def _on_reference_frame_changed(self, _reference_frame: str) -> None:
         self._on_model_tcp_changed()
+
+    def _apply_cartesian_slider_limits(self) -> None:
+        xyz_limits = self.robot_model.get_cartesian_slider_limits_xyz()
+        self.cartesian_control_widget.update_axis_limits(list(xyz_limits[:3]) + [(-180.0, 180.0)] * 3)
     
     def get_new_target(self) -> list[float]:
         return self.new_target

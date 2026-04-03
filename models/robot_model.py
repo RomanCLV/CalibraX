@@ -25,6 +25,11 @@ class RobotModel(QObject):
     # Estimated defaults (deg/s^3), can be refined from real traces.
     DEFAULT_AXIS_JERK_LIMITS: List[float] = [6000.0, 5000.0, 5000.0, 7500.0, 6500.0, 9000.0]
     DEFAULT_AXIS_COLLIDERS: List[dict[str, Any]] = default_axis_colliders(6)
+    DEFAULT_CARTESIAN_SLIDER_LIMITS_XYZ: List[Tuple[float, float]] = [
+        (-1000.0, 1000.0),
+        (-1000.0, 1000.0),
+        (-1000.0, 1000.0),
+    ]
     DEFAULT_ROBOT_CAD_MODELS: List[str] = [f"./robots_stl/rocky{i}.stl" for i in range(7)]
     DEFAULT_HOME_POSITION: List[float] = [0.0, -90.0, 90.0, 0.0, 90.0, 0.0]
     POSITION_ZERO: List[float] = [0.0, -90.0, 90.0, 0.0, 0.0, 0.0]
@@ -51,6 +56,7 @@ class RobotModel(QObject):
     joints_changed = pyqtSignal()
     axis_reversed_changed = pyqtSignal()
     axis_limits_changed = pyqtSignal()
+    cartesian_slider_limits_changed = pyqtSignal()
     axis_speed_limits_changed = pyqtSignal()
     axis_jerk_limits_changed = pyqtSignal()
     joint_weights_changed = pyqtSignal()
@@ -80,6 +86,9 @@ class RobotModel(QObject):
         # ====================================================================
         # Limites des axes (min, max) pour chaque joint
         self.axis_limits: List[Tuple[float, float]] = list(RobotModel.DEFAULT_AXIS_LIMITS)
+        self.cartesian_slider_limits_xyz: List[Tuple[float, float]] = list(
+            RobotModel.DEFAULT_CARTESIAN_SLIDER_LIMITS_XYZ
+        )
         self.axis_speed_limits: List[float] = list(RobotModel.DEFAULT_AXIS_SPEED_LIMITS)
         self.axis_jerk_limits: List[float] = list(RobotModel.DEFAULT_AXIS_JERK_LIMITS)
         self.robot_cad_models: List[str] = list(RobotModel.DEFAULT_ROBOT_CAD_MODELS)
@@ -604,6 +613,10 @@ class RobotModel(QObject):
         """Retourne les limites de tous les axes"""
         return self.axis_limits.copy()
 
+    def get_cartesian_slider_limits_xyz(self) -> list[tuple[float, float]]:
+        """Retourne les limites XYZ utilisees par les sliders cartesiens."""
+        return self.cartesian_slider_limits_xyz.copy()
+
     def get_axis_speed_limit(self, index: int) -> float:
         """Retourne la limite de vitesse d'un axe spécifique en deg/s"""
         return self.axis_speed_limits[index] if 0 <= index < 6 else 0.0
@@ -702,6 +715,24 @@ class RobotModel(QObject):
         self.MGI_solver.set_axis_limits(RobotModel._mgi_build_axis_limits(self.axis_limits))
         self.axis_limits_changed.emit()
         self._update_tcp_pose()
+
+    def set_cartesian_slider_limits_xyz(self, limits: list[tuple[float, float]]):
+        """Définit les limites XYZ utilisees par les sliders cartesiens."""
+        normalized: list[tuple[float, float]] = []
+        for index in range(3):
+            default_min, default_max = RobotModel.DEFAULT_CARTESIAN_SLIDER_LIMITS_XYZ[index]
+            if index < len(limits):
+                try:
+                    min_val = float(limits[index][0])
+                    max_val = float(limits[index][1])
+                except (TypeError, ValueError, IndexError):
+                    min_val, max_val = default_min, default_max
+            else:
+                min_val, max_val = default_min, default_max
+            normalized.append((min_val, max_val))
+
+        self.cartesian_slider_limits_xyz = normalized
+        self.cartesian_slider_limits_changed.emit()
 
     def set_axis_speed_limit(self, index: int, value: float):
         """Définit la limite de vitesse d'un axe spécifique en deg/s"""

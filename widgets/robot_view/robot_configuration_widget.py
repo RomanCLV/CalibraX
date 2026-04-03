@@ -47,7 +47,7 @@ class RobotConfigurationWidget(QWidget):
     tool_changed = pyqtSignal(RobotTool)
     axis_colliders_config_changed = pyqtSignal(list)
 
-    axis_config_changed = pyqtSignal(list, list, list, list)
+    axis_config_changed = pyqtSignal(list, list, list, list, list)
     positions_config_changed = pyqtSignal(list, list, list)
     position_zero_requested = pyqtSignal()
     position_transport_requested = pyqtSignal()
@@ -105,6 +105,7 @@ class RobotConfigurationWidget(QWidget):
         self.tool_cad_line_edit: QLineEdit | None = None
         self.tool_cad_offset_rz_spin: QDoubleSpinBox | None = None
         self.table_axis_colliders: QTableWidget | None = None
+        self.table_cartesian_slider_limits: QTableWidget | None = None
         self.table_tool_colliders: QTableWidget | None = None
         self._tool_collider_type_combos: list[QComboBox] = []
         self._tool_collider_enabled_checkboxes: list[QCheckBox] = []
@@ -209,6 +210,17 @@ class RobotConfigurationWidget(QWidget):
 
         self.table_axis.itemChanged.connect(self._on_axis_item_changed)
         layout.addWidget(self.table_axis)
+
+        cartesian_group = QGroupBox("Plages des sliders cartesiens")
+        cartesian_layout = QVBoxLayout(cartesian_group)
+        cartesian_layout.addWidget(QLabel("Bornes X/Y/Z min/max du controle cartesien."))
+        self.table_cartesian_slider_limits = QTableWidget(3, 2)
+        self.table_cartesian_slider_limits.setHorizontalHeaderLabels(["Min (mm)", "Max (mm)"])
+        self.table_cartesian_slider_limits.setVerticalHeaderLabels(["X", "Y", "Z"])
+        self.table_cartesian_slider_limits.horizontalHeader().setDefaultSectionSize(120)
+        self.table_cartesian_slider_limits.itemChanged.connect(self._on_cartesian_slider_limits_item_changed)
+        cartesian_layout.addWidget(self.table_cartesian_slider_limits)
+        layout.addWidget(cartesian_group)
 
         return tab
 
@@ -451,6 +463,9 @@ class RobotConfigurationWidget(QWidget):
     def _on_axis_item_changed(self, item: QTableWidgetItem) -> None:
         if item.column() in (RobotConfigurationWidget.COL_AXIS_SPEED, RobotConfigurationWidget.COL_AXIS_JERK):
             self._refresh_estimated_accel_for_row(item.row())
+        self._emit_axis_config_changed()
+
+    def _on_cartesian_slider_limits_item_changed(self, _item: QTableWidgetItem) -> None:
         self._emit_axis_config_changed()
 
     def _on_axis_colliders_item_changed(self, _item: QTableWidgetItem) -> None:
@@ -907,6 +922,7 @@ class RobotConfigurationWidget(QWidget):
     def _emit_axis_config_changed(self) -> None:
         self.axis_config_changed.emit(
             self.get_axis_limits(),
+            self.get_cartesian_slider_limits_xyz(),
             self.get_axis_speed_limits(),
             self.get_axis_jerk_limits(),
             self.get_axis_reversed(),
@@ -945,6 +961,7 @@ class RobotConfigurationWidget(QWidget):
     def set_axis_config(
         self,
         axis_limits: list[tuple[float, float]],
+        cartesian_slider_limits_xyz: list[tuple[float, float]],
         axis_speed_limits: list[float],
         axis_jerk_limits: list[float],
         axis_reversed: list[int],
@@ -971,6 +988,7 @@ class RobotConfigurationWidget(QWidget):
             self._refresh_estimated_accel_column()
         finally:
             self.table_axis.blockSignals(False)
+        self.set_cartesian_slider_limits_xyz(cartesian_slider_limits_xyz)
 
     def get_axis_limits(self) -> list[tuple[float, float]]:
         limits: list[tuple[float, float]] = []
@@ -982,6 +1000,36 @@ class RobotConfigurationWidget(QWidget):
 
     def get_axis_speed_limits(self) -> list[float]:
         return [self._cell_to_float(self.table_axis, row, RobotConfigurationWidget.COL_AXIS_SPEED, 0.0) for row in range(6)]
+
+    def set_cartesian_slider_limits_xyz(self, limits: list[tuple[float, float]]) -> None:
+        if self.table_cartesian_slider_limits is None:
+            return
+
+        defaults = [(-1000.0, 1000.0)] * 3
+        self.table_cartesian_slider_limits.blockSignals(True)
+        try:
+            for row in range(3):
+                min_val, max_val = defaults[row]
+                if row < len(limits):
+                    min_val = float(limits[row][0])
+                    max_val = float(limits[row][1])
+                self.table_cartesian_slider_limits.setItem(row, 0, QTableWidgetItem(str(min_val)))
+                self.table_cartesian_slider_limits.setItem(row, 1, QTableWidgetItem(str(max_val)))
+        finally:
+            self.table_cartesian_slider_limits.blockSignals(False)
+
+    def get_cartesian_slider_limits_xyz(self) -> list[tuple[float, float]]:
+        if self.table_cartesian_slider_limits is None:
+            return [(-1000.0, 1000.0)] * 3
+
+        defaults = [(-1000.0, 1000.0)] * 3
+        limits: list[tuple[float, float]] = []
+        for row in range(3):
+            default_min, default_max = defaults[row]
+            min_val = self._cell_to_float(self.table_cartesian_slider_limits, row, 0, default_min)
+            max_val = self._cell_to_float(self.table_cartesian_slider_limits, row, 1, default_max)
+            limits.append((min_val, max_val))
+        return limits
 
     def get_axis_jerk_limits(self) -> list[float]:
         return [self._cell_to_float(self.table_axis, row, RobotConfigurationWidget.COL_AXIS_JERK, 0.0) for row in range(6)]

@@ -21,6 +21,11 @@ DEFAULT_AXIS_LIMITS: list[tuple[float, float]] = [
 DEFAULT_AXIS_SPEED_LIMITS: list[float] = [300.0, 225.0, 255.0, 381.0, 311.0, 492.0]
 DEFAULT_AXIS_JERK_LIMITS: list[float] = [6000.0, 5000.0, 5000.0, 7500.0, 6500.0, 9000.0]
 DEFAULT_AXIS_COLLIDERS: list[dict[str, Any]] = default_axis_colliders(6)
+DEFAULT_CARTESIAN_SLIDER_LIMITS_XYZ: list[tuple[float, float]] = [
+    (-1000.0, 1000.0),
+    (-1000.0, 1000.0),
+    (-1000.0, 1000.0),
+]
 DEFAULT_ROBOT_CAD_MODELS: list[str] = [f"./default/robots_stl/rocky{i}.stl" for i in range(7)]
 @dataclass
 class RobotConfigurationFile:
@@ -30,6 +35,9 @@ class RobotConfigurationFile:
     dh: list[list[float]] = field(default_factory=lambda: [[0.0, 0.0, 0.0, 0.0] for _ in range(6)])
     corr: list[list[float]] = field(default_factory=lambda: [[0.0, 0.0, 0.0, 0.0, 0.0, 0.0] for _ in range(6)])
     axis_limits: list[tuple[float, float]] = field(default_factory=lambda: list(DEFAULT_AXIS_LIMITS))
+    cartesian_slider_limits_xyz: list[tuple[float, float]] = field(
+        default_factory=lambda: list(DEFAULT_CARTESIAN_SLIDER_LIMITS_XYZ)
+    )
     axis_speed_limits: list[float] = field(default_factory=lambda: list(DEFAULT_AXIS_SPEED_LIMITS))
     axis_jerk_limits: list[float] = field(default_factory=lambda: list(DEFAULT_AXIS_JERK_LIMITS))
     axis_colliders: list[dict[str, Any]] = field(default_factory=lambda: axis_colliders_to_dict(DEFAULT_AXIS_COLLIDERS, 6))
@@ -113,6 +121,23 @@ class RobotConfigurationFile:
         return limits
 
     @classmethod
+    def _parse_cartesian_slider_limits_xyz(cls, values: Any) -> list[tuple[float, float]]:
+        limits: list[tuple[float, float]] = []
+        if not isinstance(values, list):
+            values = []
+
+        for i, item in enumerate(values[:3]):
+            default_min, default_max = DEFAULT_CARTESIAN_SLIDER_LIMITS_XYZ[i]
+            if isinstance(item, (list, tuple)) and len(item) >= 2:
+                limits.append((cls._safe_float(item[0], default_min), cls._safe_float(item[1], default_max)))
+            else:
+                limits.append((default_min, default_max))
+
+        while len(limits) < 3:
+            limits.append(DEFAULT_CARTESIAN_SLIDER_LIMITS_XYZ[len(limits)])
+        return limits
+
+    @classmethod
     def _parse_axis_speed_limits(cls, values: Any) -> list[float]:
         speed_limits: list[float] = []
         if not isinstance(values, list):
@@ -193,6 +218,7 @@ class RobotConfigurationFile:
             dh=[row[:] for row in robot_model.get_dh_params()[:6]],
             corr=[row[:] for row in robot_model.get_corrections()],
             axis_limits=[tuple(v) for v in robot_model.get_axis_limits()],
+            cartesian_slider_limits_xyz=[tuple(v) for v in robot_model.get_cartesian_slider_limits_xyz()],
             axis_speed_limits=robot_model.get_axis_speed_limits(),
             axis_jerk_limits=robot_model.get_axis_jerk_limits(),
             axis_colliders=robot_model.get_axis_colliders(),
@@ -208,6 +234,7 @@ class RobotConfigurationFile:
                 "dh",
                 "corr",
                 "axis_limits",
+                "cartesian_slider_limits_xyz",
                 "axis_speed_limits",
                 "axis_jerk_limits",
                 "axis_colliders",
@@ -252,6 +279,9 @@ class RobotConfigurationFile:
             dh=cls._parse_matrix(data.get("dh"), 6, 4, 0.0),
             corr=cls._parse_matrix(data.get("corr"), 6, 6, 0.0),
             axis_limits=cls._parse_axis_limits(data.get("axis_limits")),
+            cartesian_slider_limits_xyz=cls._parse_cartesian_slider_limits_xyz(
+                data.get("cartesian_slider_limits_xyz")
+            ),
             axis_speed_limits=cls._parse_axis_speed_limits(data.get("axis_speed_limits")),
             axis_jerk_limits=cls._parse_axis_jerk_limits(data.get("axis_jerk_limits")),
             axis_colliders=parse_axis_colliders(data.get("axis_colliders", DEFAULT_AXIS_COLLIDERS), 6),
@@ -274,6 +304,7 @@ class RobotConfigurationFile:
             "dh": [[str(val) for val in row] for row in self.dh[:6]],
             "corr": [[str(val) for val in row] for row in self.corr[:6]],
             "axis_limits": self.axis_limits[:6],
+            "cartesian_slider_limits_xyz": self.cartesian_slider_limits_xyz[:3],
             "axis_speed_limits": self.axis_speed_limits[:6],
             "axis_jerk_limits": self.axis_jerk_limits[:6],
             "axis_colliders": axis_colliders_to_dict(self.axis_colliders, 6),
@@ -301,6 +332,8 @@ class RobotConfigurationFile:
             robot_model.set_allowed_configurations(self.allowed_configs)
         if "axis_limits" in self.present_fields:
             robot_model.set_axis_limits(self.axis_limits)
+        if "cartesian_slider_limits_xyz" in self.present_fields:
+            robot_model.set_cartesian_slider_limits_xyz(self.cartesian_slider_limits_xyz)
         if "axis_speed_limits" in self.present_fields:
             robot_model.set_axis_speed_limits(self.axis_speed_limits)
         if "axis_jerk_limits" in self.present_fields:

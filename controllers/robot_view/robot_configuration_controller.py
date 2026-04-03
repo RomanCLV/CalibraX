@@ -77,11 +77,13 @@ class RobotConfigurationController(QObject):
     def _on_view_axis_config_changed(
         self,
         axis_limits: list[tuple[float, float]],
+        cartesian_slider_limits_xyz: list[tuple[float, float]],
         axis_speed_limits: list[float],
         axis_jerk_limits: list[float],
         axis_reversed: list[int],
     ) -> None:
         self.robot_model.inhibit_auto_compute_fk_tcp(True)
+        self.robot_model.set_cartesian_slider_limits_xyz(cartesian_slider_limits_xyz)
         self.robot_model.set_axis_speed_limits(axis_speed_limits)
         self.robot_model.set_axis_jerk_limits(axis_jerk_limits)
         self.robot_model.set_axis_limits(axis_limits)
@@ -143,6 +145,7 @@ class RobotConfigurationController(QObject):
     def update_axis_config_view(self) -> None:
         self.robot_configuration_widget.set_axis_config(
             self.robot_model.get_axis_limits(),
+            self.robot_model.get_cartesian_slider_limits_xyz(),
             self.robot_model.get_axis_speed_limits(),
             self.robot_model.get_axis_jerk_limits(),
             self.robot_model.get_axis_reversed(),
