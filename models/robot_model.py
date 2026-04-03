@@ -25,7 +25,7 @@ class RobotModel(QObject):
     # Estimated defaults (deg/s^3), can be refined from real traces.
     DEFAULT_AXIS_JERK_LIMITS: List[float] = [6000.0, 5000.0, 5000.0, 7500.0, 6500.0, 9000.0]
     DEFAULT_AXIS_COLLIDERS: List[dict[str, Any]] = default_axis_colliders(6)
-    DEFAULT_ROBOT_CAD_MODELS: List[str] = [f"./robot_stl/rocky{i}.stl" for i in range(7)]
+    DEFAULT_ROBOT_CAD_MODELS: List[str] = [f"./robots_stl/rocky{i}.stl" for i in range(7)]
     DEFAULT_HOME_POSITION: List[float] = [0.0, -90.0, 90.0, 0.0, 90.0, 0.0]
     POSITION_ZERO: List[float] = [0.0, -90.0, 90.0, 0.0, 0.0, 0.0]
     POSITION_TRANSPORT: List[float] = [0.0, -105.0, 156.0, 0.0, 120.0, 0.0]

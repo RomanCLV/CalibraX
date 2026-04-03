@@ -602,10 +602,10 @@ class Viewer3DWidget(QWidget):
 
     def _resolve_robot_cad_models(self) -> list[str]:
         if self._robot_model is None:
-            return [f"./default/robot_stl/rocky{i}.stl" for i in range(7)]
+            return [f"./default/robots_stl/rocky{i}.stl" for i in range(7)]
         cad_models = self._robot_model.get_robot_cad_models()
         if not cad_models:
-            return [f"./default/robot_stl/rocky{i}.stl" for i in range(7)]
+            return [f"./default/robots_stl/rocky{i}.stl" for i in range(7)]
         return [str(path) for path in cad_models]
 
     def _resolve_tool_cad_model(self) -> str:
@@ -670,7 +670,7 @@ class Viewer3DWidget(QWidget):
             if matrix_index < len(robot_cad_models):
                 stl_path = robot_cad_models[matrix_index]
             else:
-                stl_path = f"./default/robot_stl/rocky{matrix_index}.stl"
+                stl_path = f"./default/robots_stl/rocky{matrix_index}.stl"
 
             if not stl_path:
                 continue

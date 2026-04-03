@@ -838,9 +838,9 @@ class RobotConfigurationWidget(QWidget):
     @staticmethod
     def _get_cad_start_directory() -> str:
         current_dir = os.getcwd()
-        robot_stl_dir = os.path.join(current_dir, "default", "robot_stl")
-        if os.path.isdir(robot_stl_dir):
-            return robot_stl_dir
+        robots_stl_dir = os.path.join(current_dir, "default", "robots_stl")
+        if os.path.isdir(robots_stl_dir):
+            return robots_stl_dir
         return current_dir
 
     @staticmethod
