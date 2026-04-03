@@ -56,7 +56,6 @@ class RobotConfigurationWidget(QWidget):
     robot_cad_models_changed = pyqtSignal(list)
     tool_cad_model_changed = pyqtSignal(str)
     tool_cad_offset_rz_changed = pyqtSignal(float)
-    tool_retractable_z_changed = pyqtSignal(float)
     tool_colliders_changed = pyqtSignal(list)
     tool_profiles_directory_changed = pyqtSignal(str)
     selected_tool_profile_changed = pyqtSignal(str)
@@ -105,7 +104,6 @@ class RobotConfigurationWidget(QWidget):
         self.robot_cad_line_edits: list[QLineEdit] = []
         self.tool_cad_line_edit: QLineEdit | None = None
         self.tool_cad_offset_rz_spin: QDoubleSpinBox | None = None
-        self.tool_retractable_z_spin: QDoubleSpinBox | None = None
         self.table_axis_colliders: QTableWidget | None = None
         self.table_tool_colliders: QTableWidget | None = None
         self._tool_collider_type_combos: list[QComboBox] = []
@@ -159,7 +157,6 @@ class RobotConfigurationWidget(QWidget):
         self.tool_widget.tool_changed.connect(self._on_tool_changed)
         self.tool_widget_container_layout.addWidget(self.tool_widget)
         self.set_tool_profiles_directory(self._default_tools_directory(), emit_change=False)
-        self.set_tool_retractable_z_mm(0.0)
         self.set_tool_colliders([])
         self.set_axis_colliders(default_axis_colliders(RobotConfigurationWidget.AXIS_COLLIDER_COUNT))
 
@@ -403,14 +400,6 @@ class RobotConfigurationWidget(QWidget):
         self.tool_cad_offset_rz_spin.setSingleStep(1.0)
         self.tool_cad_offset_rz_spin.valueChanged.connect(self.tool_cad_offset_rz_changed.emit)
         tool_cad_grid.addWidget(self.tool_cad_offset_rz_spin, 1, 1)
-
-        tool_cad_grid.addWidget(QLabel("Retractable Z (mm)"), 2, 0)
-        self.tool_retractable_z_spin = QDoubleSpinBox()
-        self.tool_retractable_z_spin.setRange(0.0, 2000.0)
-        self.tool_retractable_z_spin.setDecimals(2)
-        self.tool_retractable_z_spin.setSingleStep(0.5)
-        self.tool_retractable_z_spin.valueChanged.connect(self.tool_retractable_z_changed.emit)
-        tool_cad_grid.addWidget(self.tool_retractable_z_spin, 2, 1)
 
         layout.addLayout(tool_cad_grid)
 
@@ -705,8 +694,6 @@ class RobotConfigurationWidget(QWidget):
 
         self.set_tool_cad_offset_rz(profile.tool_cad_offset_rz)
         self.tool_cad_offset_rz_changed.emit(profile.tool_cad_offset_rz)
-        self.set_tool_retractable_z_mm(profile.retractable_z_mm)
-        self.tool_retractable_z_changed.emit(profile.retractable_z_mm)
         self.set_tool_colliders(profile.tool_colliders)
         self.tool_colliders_changed.emit(self.get_tool_colliders())
         return True
@@ -770,7 +757,6 @@ class RobotConfigurationWidget(QWidget):
             self.get_tool_cad_model(),
             self.get_tool_cad_offset_rz(),
             self.get_tool_colliders(),
-            self.get_tool_retractable_z_mm(),
         )
         try:
             profile.save(output_path)
@@ -798,9 +784,6 @@ class RobotConfigurationWidget(QWidget):
         self.set_tool_cad_offset_rz(0.0)
         if emit_signals:
             self.tool_cad_offset_rz_changed.emit(0.0)
-        self.set_tool_retractable_z_mm(0.0)
-        if emit_signals:
-            self.tool_retractable_z_changed.emit(0.0)
         self.set_tool_colliders([])
         if emit_signals:
             self.tool_colliders_changed.emit([])
@@ -1176,18 +1159,6 @@ class RobotConfigurationWidget(QWidget):
         if self.tool_cad_offset_rz_spin is None:
             return 0.0
         return float(self.tool_cad_offset_rz_spin.value())
-
-    def set_tool_retractable_z_mm(self, retractable_z_mm: float) -> None:
-        if self.tool_retractable_z_spin is None:
-            return
-        self.tool_retractable_z_spin.blockSignals(True)
-        self.tool_retractable_z_spin.setValue(float(retractable_z_mm))
-        self.tool_retractable_z_spin.blockSignals(False)
-
-    def get_tool_retractable_z_mm(self) -> float:
-        if self.tool_retractable_z_spin is None:
-            return 0.0
-        return float(self.tool_retractable_z_spin.value())
 
     def set_tool_colliders(self, tool_colliders: list[dict[str, Any]]) -> None:
         if self.table_tool_colliders is None:

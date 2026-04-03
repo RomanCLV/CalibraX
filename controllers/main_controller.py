@@ -87,7 +87,6 @@ class MainController(QObject):
         self.tool_model.tool_visual_changed.connect(self._schedule_session_save)
         self.tool_model.tool_profile_changed.connect(self._schedule_session_save)
         self.tool_model.tool_colliders_changed.connect(self._schedule_session_save)
-        self.tool_model.tool_retractable_z_changed.connect(self._schedule_session_save)
 
         self.workspace_model.workspace_changed.connect(self._schedule_session_save)
         self.main_window.get_viewer3d().display_state_changed.connect(self._schedule_session_save)

@@ -12,7 +12,6 @@ class ToolModel(QObject):
     DEFAULT_TOOL_CAD_MODEL: str = ""
     DEFAULT_TOOL_CAD_OFFSET_RZ: float = 0.0
     DEFAULT_TOOL_COLLIDERS: list[dict[str, Any]] = []
-    DEFAULT_TOOL_RETRACTABLE_Z_MM: float = 0.0
     DEFAULT_TOOL_PROFILES_DIRECTORY: str = "./configurations/tools"
     DEFAULT_SELECTED_TOOL_PROFILE: str = ""
 
@@ -20,7 +19,6 @@ class ToolModel(QObject):
     tool_visual_changed = pyqtSignal()
     tool_profile_changed = pyqtSignal()
     tool_colliders_changed = pyqtSignal()
-    tool_retractable_z_changed = pyqtSignal()
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -33,7 +31,6 @@ class ToolModel(QObject):
             ToolModel.DEFAULT_TOOL_COLLIDERS,
             default_shape="cylinder",
         )
-        self.tool_retractable_z_mm: float = ToolModel.DEFAULT_TOOL_RETRACTABLE_Z_MM
 
     def get_tool(self) -> RobotTool:
         return self.tool
@@ -103,14 +100,4 @@ class ToolModel(QObject):
             return
         self.tool_colliders = normalized
         self.tool_colliders_changed.emit()
-
-    def get_tool_retractable_z_mm(self) -> float:
-        return float(self.tool_retractable_z_mm)
-
-    def set_tool_retractable_z_mm(self, retractable_z_mm: float) -> None:
-        normalized = float(retractable_z_mm)
-        if normalized == self.tool_retractable_z_mm:
-            return
-        self.tool_retractable_z_mm = normalized
-        self.tool_retractable_z_changed.emit()
 

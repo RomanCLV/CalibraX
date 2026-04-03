@@ -65,6 +65,5 @@
             "radius": 20.0,
             "height": 140.0
         }
-    ],
-    "retractable_z_mm": 0.0
+    ]
 }
