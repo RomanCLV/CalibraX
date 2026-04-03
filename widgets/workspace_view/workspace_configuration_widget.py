@@ -110,23 +110,32 @@ class WorkspaceConfigurationWidget(QWidget):
         layout.addWidget(clear_btn, 0, 4)
 
         layout.addWidget(QLabel("Base robot dans world"), 1, 0)
-        pose_row = QHBoxLayout()
-        for idx, label_text in enumerate(["X", "Y", "Z", "A", "B", "C"]):
-            pose_row.addWidget(QLabel(label_text))
-            spinbox = QDoubleSpinBox()
-            if idx < 3:
-                spinbox.setRange(-100000.0, 100000.0)
-                spinbox.setDecimals(3)
-                spinbox.setSingleStep(1.0)
-            else:
-                spinbox.setRange(-360.0, 360.0)
-                spinbox.setDecimals(3)
-                spinbox.setSingleStep(1.0)
-            spinbox.valueChanged.connect(self._on_robot_base_pose_world_value_changed)
-            self.robot_base_pose_spinboxes.append(spinbox)
-            pose_row.addWidget(spinbox)
-        pose_row.addStretch()
-        layout.addLayout(pose_row, 1, 1, 1, 4)
+        pose_layout = QVBoxLayout()
+        label_width = 16
+        spinbox_width = 101
+        for row_idx, axis_labels in enumerate((["X", "Y", "Z"], ["A", "B", "C"])):
+            pose_row = QHBoxLayout()
+            for col_idx, label_text in enumerate(axis_labels):
+                idx = row_idx * 3 + col_idx
+                label = QLabel(label_text)
+                label.setFixedWidth(label_width)
+                pose_row.addWidget(label)
+                spinbox = QDoubleSpinBox()
+                spinbox.setFixedWidth(spinbox_width)
+                if idx < 3:
+                    spinbox.setRange(-100000.0, 100000.0)
+                    spinbox.setDecimals(3)
+                    spinbox.setSingleStep(1.0)
+                else:
+                    spinbox.setRange(-360.0, 360.0)
+                    spinbox.setDecimals(3)
+                    spinbox.setSingleStep(1.0)
+                spinbox.valueChanged.connect(self._on_robot_base_pose_world_value_changed)
+                self.robot_base_pose_spinboxes.append(spinbox)
+                pose_row.addWidget(spinbox)
+            pose_row.addStretch()
+            pose_layout.addLayout(pose_row)
+        layout.addLayout(pose_layout, 1, 1, 1, 4)
 
         return group
 
