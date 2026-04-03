@@ -4,6 +4,8 @@ from dataclasses import asdict, dataclass, field
 import json
 from typing import Any
 
+from models.reference_frame import ReferenceFrame
+
 
 @dataclass
 class ViewerDisplayState:
@@ -46,6 +48,9 @@ class AppSessionFile:
     tool_profile_path: str = ""
     workspace_path: str = ""
     viewer_state: ViewerDisplayState = field(default_factory=ViewerDisplayState)
+    cartesian_control_frame: str = ReferenceFrame.BASE.value
+    jog_tcp_display_frame: str = ReferenceFrame.BASE.value
+    trajectory_display_frame: str = ReferenceFrame.BASE.value
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "AppSessionFile":
@@ -56,6 +61,9 @@ class AppSessionFile:
             tool_profile_path="" if data.get("tool_profile_path") is None else str(data.get("tool_profile_path")),
             workspace_path="" if data.get("workspace_path") is None else str(data.get("workspace_path")),
             viewer_state=ViewerDisplayState.from_dict(data.get("viewer_state")),
+            cartesian_control_frame=ReferenceFrame.from_value(data.get("cartesian_control_frame")).value,
+            jog_tcp_display_frame=ReferenceFrame.from_value(data.get("jog_tcp_display_frame")).value,
+            trajectory_display_frame=ReferenceFrame.from_value(data.get("trajectory_display_frame")).value,
         )
 
     def to_dict(self) -> dict[str, Any]:

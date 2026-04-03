@@ -41,9 +41,12 @@ from models.trajectory_keypoint import (
     KeypointTargetType,
     TrajectoryKeypoint,
 )
+from models.reference_frame import ReferenceFrame
 from models.trajectory_result import TrajectoryResult
 from models.robot_model import RobotModel
 from models.tool_model import ToolModel
+from models.workspace_model import WorkspaceModel
+from utils.reference_frame_utils import convert_pose_from_base_frame, convert_pose_to_base_frame
 from widgets.cartesian_control_view.cartesian_control_widget import CartesianControlWidget
 from widgets.joint_control_view.joints_control_widget import JointsControlWidget
 
@@ -64,13 +67,20 @@ class TrajectoryKeypointDialog(QDialog):
         MgiConfigKey.BDF,
     ]
 
-    def __init__(self, robot_model: RobotModel, tool_model: ToolModel, parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self,
+        robot_model: RobotModel,
+        tool_model: ToolModel,
+        workspace_model: WorkspaceModel,
+        parent: Optional[QWidget] = None,
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Point clé")
         self._dialog_min_width = 620
         self.setMinimumWidth(self._dialog_min_width)
         self.robot_model = robot_model
         self.tool_model = tool_model
+        self.workspace_model = workspace_model
 
         self.target_type_combo = QComboBox()
         self.use_current_target_btn = QPushButton("Valeurs courantes")
@@ -400,10 +410,30 @@ class TrajectoryKeypointDialog(QDialog):
         self.cubic_auto_end_btn.clicked.connect(self._on_auto_end_tangent_clicked)
         self.joint_target_widget.joint_value_changed.connect(self._on_joint_target_changed)
         self.cartesian_target_widget.cartesian_value_changed.connect(self._on_cartesian_target_changed)
+        self.cartesian_target_widget.reference_frame_changed.connect(self._on_cartesian_reference_frame_changed)
+
+    def _robot_base_pose_world(self) -> list[float]:
+        return self.workspace_model.get_robot_base_pose_world()
+
+    def _get_cartesian_target_in_base_frame(self) -> list[float]:
+        return convert_pose_to_base_frame(
+            self.cartesian_target_widget.get_cartesian_values(),
+            self.cartesian_target_widget.get_reference_frame(),
+            self._robot_base_pose_world(),
+        )
+
+    def _set_cartesian_target_from_base_pose(self, pose_base: list[float]) -> None:
+        self.cartesian_target_widget.set_all_cartesian(
+            convert_pose_from_base_frame(
+                pose_base,
+                self.cartesian_target_widget.get_reference_frame(),
+                self._robot_base_pose_world(),
+            )
+        )
 
     def _on_use_current_target_clicked(self) -> None:
         if self._current_target_type() == KeypointTargetType.CARTESIAN:
-            self.cartesian_target_widget.set_all_cartesian(list(self.robot_model.get_tcp_pose()))
+            self._set_cartesian_target_from_base_pose(list(self.robot_model.get_tcp_pose()))
             self._emit_ghost_update()
             return
 
@@ -416,9 +446,9 @@ class TrajectoryKeypointDialog(QDialog):
             fk_result = self.robot_model.compute_fk_joints(home_joints, tool=self.tool_model.get_tool())
             if fk_result is not None:
                 _, _, home_pose, _, _ = fk_result
-                self.cartesian_target_widget.set_all_cartesian([float(v) for v in home_pose[:6]])
+                self._set_cartesian_target_from_base_pose([float(v) for v in home_pose[:6]])
             else:
-                self.cartesian_target_widget.set_all_cartesian(list(self.robot_model.get_tcp_pose()))
+                self._set_cartesian_target_from_base_pose(list(self.robot_model.get_tcp_pose()))
             self._emit_ghost_update()
             return
 
@@ -430,6 +460,7 @@ class TrajectoryKeypointDialog(QDialog):
             return
 
         if self._current_target_type() == KeypointTargetType.CARTESIAN:
+            self.cartesian_target_widget.set_reference_frame(self._initial_keypoint.cartesian_frame.value)
             self.cartesian_target_widget.set_all_cartesian(list(self._initial_keypoint.cartesian_target))
             self._emit_ghost_update()
             return
@@ -438,7 +469,7 @@ class TrajectoryKeypointDialog(QDialog):
         self._emit_ghost_update()
 
     def _compute_joint_values_from_cartesian_target(self) -> list[float]:
-        target = self.cartesian_target_widget.get_cartesian_values()
+        target = self._get_cartesian_target_in_base_frame()
         mgi_result = self.robot_model.compute_ik_target(target, tool=self.tool_model.get_tool())
         has_valid_raw = bool(mgi_result.get_valid_solutions())
         has_valid_expanded = bool(mgi_result.get_valid_solutions_expanded())
@@ -489,7 +520,7 @@ class TrajectoryKeypointDialog(QDialog):
             return
         _, _, pose, _, _ = fk_result
         if len(pose) >= 6:
-            self.cartesian_target_widget.set_all_cartesian([float(v) for v in pose[:6]])
+            self._set_cartesian_target_from_base_pose([float(v) for v in pose[:6]])
             self._set_cartesian_error("")
 
     def _emit_live_preview(self) -> None:
@@ -519,7 +550,7 @@ class TrajectoryKeypointDialog(QDialog):
             return payload
         _, corrected_matrices, pose, _, _ = fk_result
         if len(pose) >= 6:
-            self.cartesian_target_widget.set_all_cartesian([float(v) for v in pose[:6]])
+            self._set_cartesian_target_from_base_pose([float(v) for v in pose[:6]])
             self._set_cartesian_error("")
         payload["corrected_matrices"] = corrected_matrices
         return payload
@@ -596,7 +627,7 @@ class TrajectoryKeypointDialog(QDialog):
         if self._current_target_type() != KeypointTargetType.CARTESIAN:
             return
 
-        target = self.cartesian_target_widget.get_cartesian_values()
+        target = self._get_cartesian_target_in_base_frame()
         if len(target) < 6:
             return
 
@@ -721,7 +752,7 @@ class TrajectoryKeypointDialog(QDialog):
 
     def _resolve_current_target_xyz(self) -> list[float] | None:
         if self._current_target_type() == KeypointTargetType.CARTESIAN:
-            target = self.cartesian_target_widget.get_cartesian_values()
+            target = self._get_cartesian_target_in_base_frame()
             if len(target) < 3:
                 return None
             return [float(target[0]), float(target[1]), float(target[2])]
@@ -865,6 +896,7 @@ class TrajectoryKeypointDialog(QDialog):
             self.robot_model,
             self._context_keypoints[row - 1],
             tool=self.tool_model.get_tool(),
+            robot_base_pose_world=self._robot_base_pose_world(),
         )
         current_point_xyz = self._resolve_current_target_xyz()
         if previous_point_xyz is None or current_point_xyz is None:
@@ -894,6 +926,7 @@ class TrajectoryKeypointDialog(QDialog):
             self.robot_model,
             self._context_keypoints[row + 1],
             tool=self.tool_model.get_tool(),
+            robot_base_pose_world=self._robot_base_pose_world(),
         )
         if current_point_xyz is None or next_point_xyz is None:
             return None
@@ -989,6 +1022,11 @@ class TrajectoryKeypointDialog(QDialog):
         self._emit_ghost_update()
 
     def _on_cartesian_target_changed(self, *_args) -> None:
+        if self._current_target_type() == KeypointTargetType.CARTESIAN:
+            self._refresh_cartesian_solutions_table()
+            self._emit_ghost_update()
+
+    def _on_cartesian_reference_frame_changed(self, _frame: str) -> None:
         if self._current_target_type() == KeypointTargetType.CARTESIAN:
             self._refresh_cartesian_solutions_table()
             self._emit_ghost_update()
@@ -1110,6 +1148,7 @@ class TrajectoryKeypointDialog(QDialog):
             self.target_type_combo.setCurrentIndex(target_type_idx)
             self.target_type_combo.blockSignals(False)
 
+        self.cartesian_target_widget.set_reference_frame(keypoint.cartesian_frame.value)
         self.cartesian_target_widget.set_all_cartesian(keypoint.cartesian_target)
         self.joint_target_widget.set_all_joints(keypoint.joint_target)
 
@@ -1178,6 +1217,7 @@ class TrajectoryKeypointDialog(QDialog):
         return TrajectoryKeypoint(
             target_type=target_type,
             cartesian_target=self.cartesian_target_widget.get_cartesian_values(),
+            cartesian_frame=ReferenceFrame.from_value(self.cartesian_target_widget.get_reference_frame()),
             joint_target=self.joint_target_widget.get_all_joints(),
             mode=mode,
             cubic_vectors=[

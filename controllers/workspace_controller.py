@@ -31,6 +31,7 @@ class WorkspaceController(QObject):
         self.workspace_model.workspace_changed.connect(self._update_workspace_view)
 
         self.workspace_widget.scene_name_changed.connect(self._on_scene_name_changed)
+        self.workspace_widget.robot_base_pose_world_changed.connect(self._on_robot_base_pose_world_changed)
         self.workspace_widget.workspace_cad_elements_changed.connect(self._on_workspace_cad_elements_changed)
         self.workspace_widget.workspace_tcp_zones_changed.connect(self._on_workspace_tcp_zones_changed)
         self.workspace_widget.workspace_collision_zones_changed.connect(self._on_workspace_collision_zones_changed)
@@ -45,6 +46,7 @@ class WorkspaceController(QObject):
         self.workspace_widget.set_workspace_directory(WorkspaceConfigurationWidget._normalize_project_path(workspace_dir))
         self.workspace_widget.set_workspace_scene_name(self.workspace_model.get_workspace_scene_name())
         self.workspace_widget.set_workspace_file_path(self.workspace_model.get_workspace_file_path())
+        self.workspace_widget.set_robot_base_pose_world(self.workspace_model.get_robot_base_pose_world())
         self.workspace_widget.set_workspace_cad_elements(self.workspace_model.get_workspace_cad_elements())
         self.workspace_widget.set_workspace_tcp_zones(self.workspace_model.get_workspace_tcp_zones())
         self.workspace_widget.set_workspace_collision_zones(self.workspace_model.get_workspace_collision_zones())
@@ -60,6 +62,13 @@ class WorkspaceController(QObject):
         self._updating_from_view = True
         try:
             self.workspace_model.set_workspace_cad_elements(values)
+        finally:
+            self._updating_from_view = False
+
+    def _on_robot_base_pose_world_changed(self, pose: list[float]) -> None:
+        self._updating_from_view = True
+        try:
+            self.workspace_model.set_robot_base_pose_world(pose)
         finally:
             self._updating_from_view = False
 

@@ -11,9 +11,15 @@ import utils.math_utils as math_utils
 from models.app_session_file import ViewerDisplayState
 from models.collider_models import parse_axis_colliders, parse_primitive_colliders
 from models.robot_model import RobotModel
+from models.reference_frame import ReferenceFrame
 from models.tool_model import ToolModel
 from models.workspace_model import WorkspaceModel
 from widgets.frame_visibility_overlay_widget import FrameVisibilityOverlayWidget
+from utils.reference_frame_utils import (
+    base_pose_world_to_matrix,
+    transform_matrix_base_to_world,
+    transform_points_base_to_world,
+)
 
 class Viewer3DWidget(QWidget):
     """Widget pour la visualisation 3D avec PyQtGraph"""
@@ -424,8 +430,9 @@ class Viewer3DWidget(QWidget):
 
         if self._trajectory_path_segments is not None and len(self._trajectory_path_segments) > 0:
             for points_xyz, color in self._trajectory_path_segments:
+                world_points = self._transform_robot_points_to_world(points_xyz)
                 path_item = gl.GLLinePlotItem(
-                    pos=points_xyz,
+                    pos=world_points,
                     color=color,
                     width=2,
                     antialias=True,
@@ -445,8 +452,9 @@ class Viewer3DWidget(QWidget):
 
             base_points = points[mask]
             if len(base_points) > 0:
+                world_base_points = self._transform_robot_points_to_world(base_points)
                 self._trajectory_keypoints_item = gl.GLScatterPlotItem(
-                    pos=base_points,
+                    pos=world_base_points,
                     color=(0.95, 0.95, 0.95, 0.9),
                     size=9,
                     pxMode=True,
@@ -454,8 +462,9 @@ class Viewer3DWidget(QWidget):
                 self.viewer.addItem(self._trajectory_keypoints_item)
 
             if selected_idx is not None and 0 <= selected_idx < len(points):
+                selected_points = self._transform_robot_points_to_world(np.array([points[selected_idx]], dtype=float))
                 self._trajectory_keypoint_selected_item = gl.GLScatterPlotItem(
-                    pos=np.array([points[selected_idx]], dtype=float),
+                    pos=selected_points,
                     color=(0.1, 0.85, 1.0, 1.0),
                     size=13,
                     pxMode=True,
@@ -463,8 +472,9 @@ class Viewer3DWidget(QWidget):
                 self.viewer.addItem(self._trajectory_keypoint_selected_item)
 
             if editing_idx is not None and 0 <= editing_idx < len(points):
+                editing_points = self._transform_robot_points_to_world(np.array([points[editing_idx]], dtype=float))
                 self._trajectory_keypoint_editing_item = gl.GLScatterPlotItem(
-                    pos=np.array([points[editing_idx]], dtype=float),
+                    pos=editing_points,
                     color=(1.0, 0.35, 0.1, 1.0),
                     size=15,
                     pxMode=True,
@@ -475,8 +485,9 @@ class Viewer3DWidget(QWidget):
             for segment in self._trajectory_tangent_out_segments:
                 if len(segment) < 2:
                     continue
+                world_segment = self._transform_robot_points_to_world(segment)
                 item = gl.GLLinePlotItem(
-                    pos=segment,
+                    pos=world_segment,
                     color=(1.0, 0.5, 0.1, 0.95),
                     width=2,
                     antialias=True,
@@ -488,8 +499,9 @@ class Viewer3DWidget(QWidget):
             for segment in self._trajectory_tangent_in_segments:
                 if len(segment) < 2:
                     continue
+                world_segment = self._transform_robot_points_to_world(segment)
                 item = gl.GLLinePlotItem(
-                    pos=segment,
+                    pos=world_segment,
                     color=(0.25, 1.0, 0.55, 0.95),
                     width=2,
                     antialias=True,
@@ -522,7 +534,7 @@ class Viewer3DWidget(QWidget):
         for i, T in enumerate(matrices):
             # On dessine seulement si l'index est marqué visible dans la liste
             if i < len(self.frames_visibility) and self.frames_visibility[i]:
-                self.draw_frame(T)
+                self.draw_frame(self._transform_robot_matrix_to_world(T))
     
     def draw_workspace_frames(self) -> None:
         for i, transform in enumerate(self._workspace_frame_matrices):
@@ -713,7 +725,7 @@ class Viewer3DWidget(QWidget):
             T = matrices[matrix_index]
             if is_tool:
                 T = self._apply_tool_visual_offset(T, tool_offset_rz)
-            mesh_item = self.load_robot_mesh(stl_path, T, link_color)
+            mesh_item = self.load_robot_mesh(stl_path, self._transform_robot_matrix_to_world(T), link_color)
             if mesh_item:
                 self.robot_links.append(mesh_item)
                 self._robot_link_matrix_indices.append(matrix_index)
@@ -722,7 +734,7 @@ class Viewer3DWidget(QWidget):
                 if not self._cad_showed:
                     mesh_item.hide()
 
-            ghost_item = self.load_robot_mesh(stl_path, T, ghost_color)
+            ghost_item = self.load_robot_mesh(stl_path, self._transform_robot_matrix_to_world(T), ghost_color)
             if ghost_item:
                 ghost_item.setGLOptions('translucent')
                 self.robot_ghost_links.append(ghost_item)
@@ -756,7 +768,7 @@ class Viewer3DWidget(QWidget):
         color = (0.2, 0.75, 1.0, 0.22) if ghost else self._resolve_tool_link_color()
         base_transform = matrices[matrix_index]
         visual_transform = self._apply_tool_visual_offset(base_transform, self._resolve_tool_cad_offset_rz())
-        mesh_item = self.load_robot_mesh(stl_path, visual_transform, color)
+        mesh_item = self.load_robot_mesh(stl_path, self._transform_robot_matrix_to_world(visual_transform), color)
         if mesh_item is None:
             return
 
@@ -832,6 +844,20 @@ class Viewer3DWidget(QWidget):
         transform[:3, :3] = math_utils.euler_to_rotation_matrix(values[3], values[4], values[5], degrees=True)
         transform[:3, 3] = [values[0], values[1], values[2]]
         return transform
+
+    def _get_robot_base_pose_world(self) -> list[float]:
+        if self._workspace_model is None:
+            return [0.0] * 6
+        return self._workspace_model.get_robot_base_pose_world()
+
+    def _get_robot_base_world_transform(self) -> np.ndarray:
+        return base_pose_world_to_matrix(self._get_robot_base_pose_world())
+
+    def _transform_robot_matrix_to_world(self, transform: np.ndarray) -> np.ndarray:
+        return transform_matrix_base_to_world(transform, self._get_robot_base_pose_world())
+
+    def _transform_robot_points_to_world(self, points_xyz: np.ndarray) -> np.ndarray:
+        return transform_points_base_to_world(points_xyz, self._get_robot_base_pose_world())
 
     def _render_workspace_models(self) -> None:
         self._workspace_element_items.clear()
@@ -917,7 +943,7 @@ class Viewer3DWidget(QWidget):
 
             translation = np.eye(4, dtype=float)
             translation[:3, 3] = local_offset
-            transform = base_transform @ translation @ orientation
+            transform = self._transform_robot_matrix_to_world(base_transform @ translation @ orientation)
             item = self._build_primitive_item(
                 {
                     "shape": "cylinder",
@@ -944,7 +970,9 @@ class Viewer3DWidget(QWidget):
         matrix_index = self._resolve_tool_attachment_matrix_index(self.last_corrected_matrices)
         if matrix_index is None:
             matrix_index = len(self.last_corrected_matrices) - 1
-        flange_transform = np.array(self.last_corrected_matrices[matrix_index], dtype=float)
+        flange_transform = self._transform_robot_matrix_to_world(
+            np.array(self.last_corrected_matrices[matrix_index], dtype=float)
+        )
         for collider in self._tool_colliders:
             if not bool(collider.get("enabled", True)):
                 continue
@@ -1011,6 +1039,7 @@ class Viewer3DWidget(QWidget):
             T = matrices[matrix_index]
             if role == "tool":
                 T = self._apply_tool_visual_offset(T, tool_offset_rz)
+            T = self._transform_robot_matrix_to_world(T)
             if mesh_item:
                 mesh_item.resetTransform()
                 qmat = QtGui.QMatrix4x4(
@@ -1339,6 +1368,7 @@ class Viewer3DWidget(QWidget):
             T = matrices[matrix_index]
             if role == "tool":
                 T = self._apply_tool_visual_offset(T, tool_offset_rz)
+            T = self._transform_robot_matrix_to_world(T)
             if mesh_item:
                 mesh_item.resetTransform()
                 qmat = QtGui.QMatrix4x4(

@@ -2,6 +2,7 @@ from PyQt6.QtCore import QObject
 
 from models.robot_model import RobotModel
 from models.tool_model import ToolModel
+from models.workspace_model import WorkspaceModel
 from views.cartesian_control_view import CartesianControlView
 from controllers.cartesian_control_view.cartesian_wdiget_controller import CartesianWidgetController
 from controllers.cartesian_control_view.mgi_solutions_controller import MgiSolutionsController
@@ -12,6 +13,7 @@ class CartesianControlController(QObject):
         self,
         robot_model: RobotModel,
         tool_model: ToolModel,
+        workspace_model: WorkspaceModel,
         cartesian_control_view: CartesianControlView,
         parent: QObject = None,
     ):
@@ -19,9 +21,14 @@ class CartesianControlController(QObject):
 
         self.robot_model = robot_model
         self.tool_model = tool_model
+        self.workspace_model = workspace_model
         self.cartesian_control_view = cartesian_control_view
 
-        self.cartesian_widget_controller = CartesianWidgetController(self.robot_model, self.cartesian_control_view.get_cartesian_control_widget())
+        self.cartesian_widget_controller = CartesianWidgetController(
+            self.robot_model,
+            self.workspace_model,
+            self.cartesian_control_view.get_cartesian_control_widget(),
+        )
         self.mgi_solutions_controller = MgiSolutionsController(self.robot_model, self.cartesian_control_view.get_mgi_solutions_widget())
 
         self._setup_connections()

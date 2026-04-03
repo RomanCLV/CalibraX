@@ -3,6 +3,7 @@ import bisect
 from dataclasses import dataclass
 
 from models.robot_model import RobotModel
+from models.workspace_model import WorkspaceModel
 from models.tool_model import ToolModel
 from models.trajectory_keypoint import (
     ConfigurationPolicy,
@@ -22,6 +23,7 @@ from models.trajectory_result import (
 )
 from utils.bezier3 import Bezier3Coefficients3D
 import utils.math_utils as math_utils
+from utils.reference_frame_utils import convert_pose_to_base_frame
 from utils.mgi import MGI, MgiConfigKey, MgiResult, MgiResultItem, MgiResultStatus, ConfigurationIdentifier
 
 
@@ -58,12 +60,14 @@ class TrajectoryBuilder:
         self,
         robot_model: RobotModel,
         tool_model: ToolModel,
+        workspace_model: WorkspaceModel,
         behavior: TrajectoryBuilderBehavior = TrajectoryBuilderBehavior.CONTINUE_ON_ERROR,
         sample_dt_s: float = DEFAULT_SAMPLE_DT_S,
         smooth_time_enabled: bool = True,
     ) -> None:
         self.robot_model = robot_model
         self.tool_model = tool_model
+        self.workspace_model = workspace_model
         self.behavior = behavior
         self.sample_dt_s = sample_dt_s if sample_dt_s > 0.0 else TrajectoryBuilder.DEFAULT_SAMPLE_DT_S
         self.smooth_time_enabled = bool(smooth_time_enabled)
@@ -147,7 +151,11 @@ class TrajectoryBuilder:
 
     def _resolve_keypoint_pose(self, keypoint: TrajectoryKeypoint) -> list[float] | None:
         if keypoint.target_type == KeypointTargetType.CARTESIAN:
-            return [float(v) for v in keypoint.cartesian_target[:6]]
+            return convert_pose_to_base_frame(
+                keypoint.cartesian_target,
+                keypoint.cartesian_frame,
+                self.workspace_model.get_robot_base_pose_world(),
+            )
         return self._resolve_pose_from_joints(keypoint.joint_target)
 
     def _resolve_pose_from_joints(self, joints_deg: list[float]) -> list[float] | None:

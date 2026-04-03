@@ -57,9 +57,10 @@ class MainController(QObject):
         self.cartesian_control_controller = CartesianControlController(
             robot_model,
             tool_model,
+            workspace_model,
             main_window.get_cartesian_control_view(),
         )
-        self.jog_controller = JogController(robot_model, tool_model, main_window.get_jog_view())
+        self.jog_controller = JogController(robot_model, tool_model, workspace_model, main_window.get_jog_view())
         self.viewer3d_controller = Viewer3DController(
             robot_model,
             tool_model,
@@ -69,6 +70,7 @@ class MainController(QObject):
         self.trajectory_controller = TrajectoryController(
             robot_model,
             tool_model,
+            workspace_model,
             main_window.get_trajectory_view(),
             self.viewer3d_controller,
         )
@@ -90,6 +92,15 @@ class MainController(QObject):
 
         self.workspace_model.workspace_changed.connect(self._schedule_session_save)
         self.main_window.get_viewer3d().display_state_changed.connect(self._schedule_session_save)
+        self.main_window.get_cartesian_control_view().get_cartesian_control_widget().reference_frame_changed.connect(
+            self._schedule_session_save
+        )
+        self.main_window.get_jog_view().get_jog_tcp_visualization_widget().display_frame_changed.connect(
+            self._schedule_session_save
+        )
+        self.main_window.get_trajectory_view().get_config_widget().cartesianDisplayFrameChanged.connect(
+            self._schedule_session_save
+        )
 
     def bootstrap_startup(self) -> None:
         session = self._load_session()
@@ -111,6 +122,24 @@ class MainController(QObject):
         if isinstance(viewer_state, ViewerDisplayState):
             self.main_window.get_viewer3d().apply_display_state(viewer_state)
 
+        cartesian_control_frame = startup.get("cartesian_control_frame")
+        if isinstance(cartesian_control_frame, str):
+            self.main_window.get_cartesian_control_view().get_cartesian_control_widget().set_reference_frame(
+                cartesian_control_frame
+            )
+
+        jog_tcp_display_frame = startup.get("jog_tcp_display_frame")
+        if isinstance(jog_tcp_display_frame, str):
+            self.main_window.get_jog_view().get_jog_tcp_visualization_widget().set_display_frame(
+                jog_tcp_display_frame
+            )
+
+        trajectory_display_frame = startup.get("trajectory_display_frame")
+        if isinstance(trajectory_display_frame, str):
+            self.main_window.get_trajectory_view().get_config_widget().set_cartesian_display_frame(
+                trajectory_display_frame
+            )
+
         self._startup_completed = True
         self._schedule_session_save()
 
@@ -120,6 +149,15 @@ class MainController(QObject):
             tool_profile_path=self._normalize_project_path(self.tool_model.get_selected_tool_profile()),
             workspace_path=self._normalize_project_path(self.workspace_model.get_workspace_file_path()),
             viewer_state=self.main_window.get_viewer3d().get_display_state(),
+            cartesian_control_frame=(
+                self.main_window.get_cartesian_control_view().get_cartesian_control_widget().get_reference_frame()
+            ),
+            jog_tcp_display_frame=(
+                self.main_window.get_jog_view().get_jog_tcp_visualization_widget().get_display_frame()
+            ),
+            trajectory_display_frame=(
+                self.main_window.get_trajectory_view().get_config_widget().get_cartesian_display_frame()
+            ),
         )
 
         session_dir = os.path.dirname(self.session_path)
@@ -165,6 +203,9 @@ class MainController(QObject):
             "tool": tool_override or (session.tool_profile_path if session is not None else ""),
             "workspace": workspace_override or (session.workspace_path if session is not None else ""),
             "viewer_state": session.viewer_state if session is not None else None,
+            "cartesian_control_frame": session.cartesian_control_frame if session is not None else None,
+            "jog_tcp_display_frame": session.jog_tcp_display_frame if session is not None else None,
+            "trajectory_display_frame": session.trajectory_display_frame if session is not None else None,
         }
 
     def _resolve_session_path(self, path: str) -> str:

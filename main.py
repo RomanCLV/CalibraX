@@ -47,7 +47,7 @@ class CalibraxApplication:
         self.robot_model = RobotModel()
         self.tool_model = ToolModel()
         self.workspace_model = WorkspaceModel()
-        self.main_window = MainWindow(self.robot_model, self.tool_model)
+        self.main_window = MainWindow(self.robot_model, self.tool_model, self.workspace_model)
         self.main_controller = MainController(
             self.robot_model,
             self.tool_model,

@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFileDialog,
+    QDoubleSpinBox,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -27,6 +28,7 @@ from models.workspace_file import parse_workspace_cad_elements
 
 class WorkspaceConfigurationWidget(QWidget):
     scene_name_changed = pyqtSignal(str)
+    robot_base_pose_world_changed = pyqtSignal(list)
     workspace_save_requested = pyqtSignal()
     workspace_load_requested = pyqtSignal()
     workspace_clear_requested = pyqtSignal()
@@ -64,6 +66,7 @@ class WorkspaceConfigurationWidget(QWidget):
         self.scene_name_line_edit: QLineEdit | None = None
         self._workspace_directory: str = ""
         self._workspace_file_path: str = ""
+        self.robot_base_pose_spinboxes: list[QDoubleSpinBox] = []
 
         self.table_elements: QTableWidget | None = None
         self.table_tcp_zones: QTableWidget | None = None
@@ -106,6 +109,24 @@ class WorkspaceConfigurationWidget(QWidget):
         clear_btn.clicked.connect(self.workspace_clear_requested.emit)
         layout.addWidget(clear_btn, 0, 4)
 
+        layout.addWidget(QLabel("Base robot dans world"), 1, 0)
+        pose_row = QHBoxLayout()
+        for idx, label_text in enumerate(["X", "Y", "Z", "A", "B", "C"]):
+            pose_row.addWidget(QLabel(label_text))
+            spinbox = QDoubleSpinBox()
+            if idx < 3:
+                spinbox.setRange(-100000.0, 100000.0)
+                spinbox.setDecimals(3)
+                spinbox.setSingleStep(1.0)
+            else:
+                spinbox.setRange(-360.0, 360.0)
+                spinbox.setDecimals(3)
+                spinbox.setSingleStep(1.0)
+            spinbox.valueChanged.connect(self._on_robot_base_pose_world_value_changed)
+            self.robot_base_pose_spinboxes.append(spinbox)
+            pose_row.addWidget(spinbox)
+        pose_row.addStretch()
+        layout.addLayout(pose_row, 1, 1, 1, 4)
 
         return group
 
@@ -267,6 +288,9 @@ class WorkspaceConfigurationWidget(QWidget):
 
     def _on_collision_table_item_changed(self, _item: QTableWidgetItem) -> None:
         self.workspace_collision_zones_changed.emit(self.get_workspace_collision_zones())
+
+    def _on_robot_base_pose_world_value_changed(self, _value: float) -> None:
+        self.robot_base_pose_world_changed.emit(self.get_robot_base_pose_world())
 
     def _on_add_tcp_zone_clicked(self) -> None:
         self._insert_primitive_row(
@@ -445,6 +469,16 @@ class WorkspaceConfigurationWidget(QWidget):
     def set_workspace_file_path(self, file_path: str) -> None:
         self._workspace_file_path = str(file_path or "").strip()
         self._refresh_scene_name_tooltip()
+
+    def set_robot_base_pose_world(self, pose: list[float]) -> None:
+        values = [self._safe_float(pose[idx] if idx < len(pose) else 0.0, 0.0) for idx in range(6)]
+        for idx, spinbox in enumerate(self.robot_base_pose_spinboxes):
+            spinbox.blockSignals(True)
+            spinbox.setValue(values[idx])
+            spinbox.blockSignals(False)
+
+    def get_robot_base_pose_world(self) -> list[float]:
+        return [float(spinbox.value()) for spinbox in self.robot_base_pose_spinboxes[:6]]
 
     def _refresh_scene_name_tooltip(self) -> None:
         if self.scene_name_line_edit is None:

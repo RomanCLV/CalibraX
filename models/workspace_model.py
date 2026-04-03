@@ -6,6 +6,7 @@ from PyQt6.QtCore import QObject, pyqtSignal
 
 from models.collider_models import parse_primitive_colliders
 from models.workspace_file import parse_workspace_cad_elements
+from utils.reference_frame_utils import normalize_pose6
 
 
 class WorkspaceModel(QObject):
@@ -18,6 +19,7 @@ class WorkspaceModel(QObject):
         super().__init__(parent)
         self.workspace_scene_name: str = WorkspaceModel.DEFAULT_WORKSPACE_SCENE_NAME
         self.workspace_file_path: str = ""
+        self.robot_base_pose_world: list[float] = [0.0] * 6
         self.workspace_cad_elements: list[dict[str, Any]] = []
         self.workspace_tcp_zones: list[dict[str, Any]] = []
         self.workspace_collision_zones: list[dict[str, Any]] = []
@@ -43,6 +45,17 @@ class WorkspaceModel(QObject):
             return
         self.workspace_file_path = normalized
         self.workspace_changed.emit()
+
+    def get_robot_base_pose_world(self) -> list[float]:
+        return [float(v) for v in self.robot_base_pose_world[:6]]
+
+    def set_robot_base_pose_world(self, pose: list[float], emit: bool = True) -> None:
+        normalized = normalize_pose6(pose)
+        if normalized == self.robot_base_pose_world:
+            return
+        self.robot_base_pose_world = normalized
+        if emit:
+            self.workspace_changed.emit()
 
     def get_workspace_cad_elements(self) -> list[dict[str, Any]]:
         return parse_workspace_cad_elements(self.workspace_cad_elements)
@@ -80,6 +93,7 @@ class WorkspaceModel(QObject):
     def set_workspace_data(
         self,
         scene_name: str,
+        robot_base_pose_world: list[float],
         cad_elements: list[dict[str, Any]],
         tcp_zones: list[dict[str, Any]],
         collision_zones: list[dict[str, Any]],
@@ -88,6 +102,7 @@ class WorkspaceModel(QObject):
         normalized_scene_name = (
             str(scene_name).strip() if scene_name else WorkspaceModel.DEFAULT_WORKSPACE_SCENE_NAME
         )
+        normalized_robot_base_pose_world = normalize_pose6(robot_base_pose_world)
         normalized_cad_elements = parse_workspace_cad_elements(cad_elements)
         normalized_tcp_zones = parse_primitive_colliders(tcp_zones, default_shape="box")
         normalized_collision_zones = parse_primitive_colliders(collision_zones, default_shape="box")
@@ -95,6 +110,7 @@ class WorkspaceModel(QObject):
 
         has_changes = (
             normalized_scene_name != self.workspace_scene_name
+            or normalized_robot_base_pose_world != self.robot_base_pose_world
             or normalized_cad_elements != self.workspace_cad_elements
             or normalized_tcp_zones != self.workspace_tcp_zones
             or normalized_collision_zones != self.workspace_collision_zones
@@ -104,6 +120,7 @@ class WorkspaceModel(QObject):
             return
 
         self.workspace_scene_name = normalized_scene_name
+        self.robot_base_pose_world = normalized_robot_base_pose_world
         self.workspace_cad_elements = normalized_cad_elements
         self.workspace_tcp_zones = normalized_tcp_zones
         self.workspace_collision_zones = normalized_collision_zones
@@ -113,6 +130,7 @@ class WorkspaceModel(QObject):
     def clear_workspace(self) -> None:
         self.set_workspace_data(
             WorkspaceModel.DEFAULT_WORKSPACE_SCENE_NAME,
+            [0.0] * 6,
             [],
             [],
             [],
