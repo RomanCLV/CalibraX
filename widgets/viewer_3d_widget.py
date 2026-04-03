@@ -1137,7 +1137,10 @@ class Viewer3DWidget(QWidget):
             return mesh_data
 
         vertices: list[list[float]] = []
-        for row in range(rows + 1):
+        top_index = 0
+        vertices.append([0.0, 0.0, r])
+
+        for row in range(1, rows):
             phi = np.pi * float(row) / float(rows)
             z = r * np.cos(phi)
             xy = r * np.sin(phi)
@@ -1147,16 +1150,32 @@ class Viewer3DWidget(QWidget):
                 y = xy * np.sin(theta)
                 vertices.append([x, y, z])
 
+        bottom_index = len(vertices)
+        vertices.append([0.0, 0.0, -r])
+
         faces: list[list[int]] = []
-        for row in range(rows):
+        first_ring_start = 1
+        last_ring_start = 1 + (rows - 2) * cols
+
+        for col in range(cols):
+            next_col = (col + 1) % cols
+            faces.append([top_index, first_ring_start + col, first_ring_start + next_col])
+
+        for row in range(rows - 3):
+            ring_start = 1 + row * cols
+            next_ring_start = ring_start + cols
             for col in range(cols):
                 next_col = (col + 1) % cols
-                a = row * cols + col
-                b = row * cols + next_col
-                c = (row + 1) * cols + col
-                d = (row + 1) * cols + next_col
+                a = ring_start + col
+                b = ring_start + next_col
+                c = next_ring_start + col
+                d = next_ring_start + next_col
                 faces.append([a, c, b])
                 faces.append([b, c, d])
+
+        for col in range(cols):
+            next_col = (col + 1) % cols
+            faces.append([last_ring_start + next_col, last_ring_start + col, bottom_index])
 
         mesh_data = gl.MeshData(vertexes=np.array(vertices, dtype=float), faces=np.array(faces, dtype=int))
         self._primitive_mesh_cache[key] = mesh_data
