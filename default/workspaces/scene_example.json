@@ -34,6 +34,44 @@
             ]
         }
     ],
-    "tcp_zones": [],
-    "collision_zones": []
+    "tcp_zones": [
+        {
+            "name": "Zone TCP 1",
+            "enabled": true,
+            "shape": "box",
+            "pose": [
+                900.0,
+                0.0,
+                900.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "size_x": 1000.0,
+            "size_y": 1500.0,
+            "size_z": 500.0,
+            "radius": 100.0,
+            "height": 200.0
+        }
+    ],
+    "collision_zones": [
+        {
+            "name": "Zone collision 1",
+            "enabled": true,
+            "shape": "box",
+            "pose": [
+                900.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "size_x": 1000.0,
+            "size_y": 3000.0,
+            "size_z": 900.0,
+            "radius": 100.0,
+            "height": 200.0
+        }
+    ]
 }
